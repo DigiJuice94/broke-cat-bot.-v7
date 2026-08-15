@@ -1,16 +1,15 @@
 const n=(name,fallback)=>process.env[name]==null||process.env[name]===''?fallback:Number(process.env[name]);
 const b=(name,fallback)=>process.env[name]==null||process.env[name]===''?fallback:['1','true','yes','on'].includes(String(process.env[name]).toLowerCase());
 const s=(name,fallback='')=>process.env[name]??fallback;
-export const USDC_MINT='EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
+export const SOL_MINT='So11111111111111111111111111111111111111112';
 export const config={
   tradingMode:s('TRADING_MODE','paper').toLowerCase(),
   liveAck:s('LIVE_TRADING_ACK',''),
   bankroll:n('PAPER_BANKROLL_USD',11),
   maxPosition:n('MAX_POSITION_USD',2),
   maxDailyLoss:n('MAX_DAILY_LOSS_USD',1),
-  livePositionUsdc:n('LIVE_POSITION_USDC',2),
-  minUsdcReserve:n('MIN_USDC_RESERVE',1),
-  minSolForFees:n('MIN_SOL_FOR_FEES',0.003),
+  livePositionUsd:n('LIVE_POSITION_USD',2),
+  minSolReserve:n('MIN_SOL_RESERVE',0.003),
   stopLossPct:n('STOP_LOSS_PCT',15),
   takeProfitPct:n('TAKE_PROFIT_PCT',50),
   trailArmPct:n('TRAIL_ARM_PCT',25),

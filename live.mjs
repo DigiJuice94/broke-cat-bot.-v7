@@ -2,10 +2,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import bs58 from 'bs58';
 import {Keypair,VersionedTransaction} from '@solana/web3.js';
-import {config,USDC_MINT,liveConfigStatus} from './config.mjs';
+import {config,SOL_MINT,liveConfigStatus} from './config.mjs';
 
 const BASE='https://api.jup.ag/swap/v2';
-const USDC_DECIMALS=6;
+const LAMPORTS_PER_SOL=1_000_000_000;
 const statePath=path.resolve(config.dataDir,'broke-cat-live-state.json');
 fs.mkdirSync(config.dataDir,{recursive:true});
 const today=()=>new Date().toISOString().slice(0,10);
@@ -14,10 +14,7 @@ function parseKey(raw){
   const value=String(raw||'').trim();
   if(!value)throw new Error('BS58_PRIVATE_KEY is empty');
   let bytes;
-  if(value.startsWith('[')){
-    const arr=JSON.parse(value);
-    bytes=Uint8Array.from(arr);
-  }else bytes=bs58.decode(value);
+  if(value.startsWith('[')){const arr=JSON.parse(value);bytes=Uint8Array.from(arr)}else bytes=bs58.decode(value);
   if(bytes.length===64)return Keypair.fromSecretKey(bytes);
   if(bytes.length===32)return Keypair.fromSeed(bytes);
   throw new Error(`Unsupported Solana private-key length ${bytes.length}; expected 32-byte seed or 64-byte secret key`);
@@ -33,6 +30,15 @@ async function rpc(method,params=[]){
   if(!r.ok)throw new Error(`Helius RPC ${r.status}: ${await r.text()}`);
   const j=await r.json();if(j.error)throw new Error(`Helius RPC ${method}: ${j.error.message||JSON.stringify(j.error)}`);return j.result;
 }
+export async function solUsdPrice(){
+  const r=await fetch(`https://api.dexscreener.com/token-pairs/v1/solana/${SOL_MINT}`,{headers:{accept:'application/json'}});
+  if(!r.ok)throw new Error(`Could not fetch SOL/USD price: DEX Screener ${r.status}`);
+  const rows=await r.json();
+  const pairs=(Array.isArray(rows)?rows:[]).filter(p=>Number(p?.priceUsd)>0).sort((a,b)=>Number(b?.liquidity?.usd||0)-Number(a?.liquidity?.usd||0));
+  const price=Number(pairs[0]?.priceUsd||0);
+  if(!price)throw new Error('Could not determine SOL/USD price');
+  return price;
+}
 export function loadLiveState(){
   if(fs.existsSync(statePath)){
     const s=JSON.parse(fs.readFileSync(statePath,'utf8'));
@@ -47,17 +53,16 @@ export function walletAddress(){try{return wallet().publicKey.toBase58()}catch{r
 export async function walletSnapshot(){
   const w=wallet().publicKey.toBase58();
   const lamports=await rpc('getBalance',[w,{commitment:'confirmed'}]);
-  const tokenAccounts=await rpc('getTokenAccountsByOwner',[w,{mint:USDC_MINT},{encoding:'jsonParsed',commitment:'confirmed'}]);
-  let usdc=0;
-  for(const row of tokenAccounts?.value||[])usdc+=Number(row?.account?.data?.parsed?.info?.tokenAmount?.uiAmountString||0);
-  return {address:w,usdc,sol:Number(lamports?.value||0)/1e9};
+  const sol=Number(lamports?.value||0)/LAMPORTS_PER_SOL;
+  const solUsd=await solUsdPrice();
+  return {address:w,sol,solUsd,solValueUsd:sol*solUsd};
 }
 export async function assertLiveFunding(){
   const snap=await walletSnapshot();
-  const needed=config.livePositionUsdc+config.minUsdcReserve;
-  if(snap.usdc<needed)throw new Error(`Live wallet needs at least $${needed.toFixed(2)} USDC ($${config.livePositionUsdc.toFixed(2)} trade + $${config.minUsdcReserve.toFixed(2)} reserve). Found $${snap.usdc.toFixed(2)} USDC.`);
-  if(snap.sol<config.minSolForFees)throw new Error(`Live wallet needs at least ${config.minSolForFees} SOL reserved for network fees. Found ${snap.sol.toFixed(4)} SOL.`);
-  return snap;
+  const tradeSol=config.livePositionUsd/snap.solUsd;
+  const needed=tradeSol+config.minSolReserve;
+  if(snap.sol<needed)throw new Error(`Live wallet needs about ${needed.toFixed(6)} SOL (~$${config.livePositionUsd.toFixed(2)} trade + ${config.minSolReserve} SOL reserve). Found ${snap.sol.toFixed(6)} SOL (~$${snap.solValueUsd.toFixed(2)}).`);
+  return {...snap,tradeSolRequired:tradeSol};
 }
 async function jupiterSwap(inputMint,outputMint,amountRaw){
   const signer=wallet();
@@ -79,16 +84,19 @@ export async function openLive(s,c){
   if(s.position)throw new Error('Live position already open');
   if(s.dailyPnl<=-config.maxDailyLoss)throw new Error('Daily loss limit reached');
   const snap=await assertLiveFunding();
-  const spendable=Math.max(0,snap.usdc-config.minUsdcReserve);
-  const size=Math.min(config.livePositionUsdc,spendable);
-  if(size<0.50)throw new Error(`Not enough spendable USDC after reserve. Wallet has $${snap.usdc.toFixed(2)}`);
-  const amountRaw=Math.floor(size*10**USDC_DECIMALS);
-  const swap=await jupiterSwap(USDC_MINT,c.tokenAddress,amountRaw);
-  const actualCost=Number(swap.inputRaw)/10**USDC_DECIMALS;
-  s.position={pairAddress:c.pairAddress,tokenAddress:c.tokenAddress,symbol:c.symbol,entryPrice:c.priceUsd,highPrice:c.priceUsd,lastPrice:c.priceUsd,costUsdc:actualCost,tokenAmountRaw:swap.outputRaw,openedAt:new Date().toISOString(),buySignature:swap.signature,score:c.score};
-  s.trades.push({type:'BUY',mode:'LIVE',symbol:c.symbol,tokenAddress:c.tokenAddress,costUsdc:actualCost,tokenAmountRaw:swap.outputRaw,price:c.priceUsd,score:c.score,signature:swap.signature,at:new Date().toISOString()});
+  const spendableSol=Math.max(0,snap.sol-config.minSolReserve);
+  const targetSol=config.livePositionUsd/snap.solUsd;
+  const sizeSol=Math.min(targetSol,spendableSol);
+  const sizeUsd=sizeSol*snap.solUsd;
+  if(sizeUsd<0.50)throw new Error(`Not enough spendable SOL after reserve. Wallet has ${snap.sol.toFixed(6)} SOL (~$${snap.solValueUsd.toFixed(2)})`);
+  const amountRaw=Math.floor(sizeSol*LAMPORTS_PER_SOL);
+  const swap=await jupiterSwap(SOL_MINT,c.tokenAddress,amountRaw);
+  const actualCostSol=Number(swap.inputRaw)/LAMPORTS_PER_SOL;
+  const actualCostUsd=actualCostSol*snap.solUsd;
+  s.position={pairAddress:c.pairAddress,tokenAddress:c.tokenAddress,symbol:c.symbol,entryPrice:c.priceUsd,highPrice:c.priceUsd,lastPrice:c.priceUsd,costSol:actualCostSol,costUsd:actualCostUsd,entrySolUsd:snap.solUsd,tokenAmountRaw:swap.outputRaw,openedAt:new Date().toISOString(),buySignature:swap.signature,score:c.score};
+  s.trades.push({type:'BUY',mode:'LIVE',symbol:c.symbol,tokenAddress:c.tokenAddress,costSol:actualCostSol,costUsd:actualCostUsd,tokenAmountRaw:swap.outputRaw,price:c.priceUsd,score:c.score,signature:swap.signature,at:new Date().toISOString()});
   saveLiveState(s);
-  return {message:`LIVE BUY $${actualCost.toFixed(2)} ${c.symbol} | tx ${swap.signature}`,signature:swap.signature};
+  return {message:`LIVE BUY ~${actualCostSol.toFixed(6)} SOL (~$${actualCostUsd.toFixed(2)}) ${c.symbol} | tx ${swap.signature}`,signature:swap.signature};
 }
 export function exitReason(s,price){
   const p=s.position;if(!p||price<=0)return null;
@@ -101,12 +109,15 @@ export function exitReason(s,price){
 }
 export async function closeLive(s,reason){
   const p=s.position;if(!p)throw new Error('No live position');
-  const swap=await jupiterSwap(p.tokenAddress,USDC_MINT,p.tokenAmountRaw);
-  const received=Number(swap.outputRaw)/10**USDC_DECIMALS;
-  const pnl=received-p.costUsdc;
-  s.realizedPnl+=pnl;s.dailyPnl+=pnl;
-  s.trades.push({type:'SELL',mode:'LIVE',symbol:p.symbol,tokenAddress:p.tokenAddress,receivedUsdc:received,pnlUsd:pnl,reason,signature:swap.signature,at:new Date().toISOString()});
+  const swap=await jupiterSwap(p.tokenAddress,SOL_MINT,p.tokenAmountRaw);
+  const receivedSol=Number(swap.outputRaw)/LAMPORTS_PER_SOL;
+  const currentSolUsd=await solUsdPrice();
+  const receivedUsd=receivedSol*currentSolUsd;
+  const pnlUsd=receivedUsd-p.costUsd;
+  const pnlSol=receivedSol-p.costSol;
+  s.realizedPnl+=pnlUsd;s.dailyPnl+=pnlUsd;
+  s.trades.push({type:'SELL',mode:'LIVE',symbol:p.symbol,tokenAddress:p.tokenAddress,receivedSol,receivedUsd,pnlUsd,pnlSol,reason,signature:swap.signature,at:new Date().toISOString()});
   s.position=null;saveLiveState(s);
-  return {message:`LIVE SELL ${p.symbol}: ${reason} | received $${received.toFixed(2)} | P&L $${pnl.toFixed(2)} | tx ${swap.signature}`,pnlUsd:pnl,receivedUsdc:received,signature:swap.signature,symbol:p.symbol};
+  return {message:`LIVE SELL ${p.symbol}: ${reason} | received ${receivedSol.toFixed(6)} SOL (~$${receivedUsd.toFixed(2)}) | P&L ${pnlUsd>=0?'+':''}$${pnlUsd.toFixed(2)} | tx ${swap.signature}`,pnlUsd,pnlSol,receivedSol,receivedUsd,signature:swap.signature,symbol:p.symbol};
 }
 export function tradeStatsLive(s){const sells=s.trades.filter(t=>t.type==='SELL');return{totalTrades:sells.length,wins:sells.filter(t=>Number(t.pnlUsd)>0).length,losses:sells.filter(t=>Number(t.pnlUsd)<0).length}}

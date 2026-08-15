@@ -6,4 +6,4 @@ assert.equal(low.holderRisk,'medium');
 assert.equal(low.top1Pct,10);
 const high=classifyHolderRisk({totalSupply:1000,holders:[250,100,80,60,50,20].map((amount,i)=>({owner:`h${i}`,amount}))});
 assert.equal(high.holderRisk,'high');
-console.log('Broke Cat V7 self-test passed');
+console.log('Broke Cat V8 self-test passed');
