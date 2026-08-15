@@ -54,25 +54,13 @@ A rejection is no longer automatically the end of the story for a newborn or nea
 
 - Coins within 10 points of `MIN_SCORE` are placed on a rapid watchlist.
 - Very new coins (default <=10 minutes) rejected because liquidity is not ready or bundle/launch data is still `UNKNOWN` are also watched when they have at least a meaningful preliminary score.
-- Hot near-pass candidates can be rescored every 10 seconds; normal rapid-watch candidates default to 15 seconds.
 - Every revisit fetches fresh pool/market data and reruns the full risk + score calculation. Old scores are not reused.
 - Rapid-watch candidates bypass the normal `CANDIDATE_SEEN_COOLDOWN_SECONDS` while their scheduled recheck is due.
-- The bot logs score movement such as `RAPID WATCH CAT 81->84 (+3)` and immediately becomes entry-eligible if the fresh score/safety gates pass.
 - High bundle/dev/holder risk is never watchlisted as a reason to eventually "hope" it becomes safe; hard risk rejects remain hard rejects.
 - Candidates expire from rapid watch after the configured age/time window or sustained deterioration, preventing an endless API-call queue.
 
 Defaults require no Railway changes. Optional controls:
 ```env
-RAPID_WATCH_ENABLED=true
-RAPID_WATCH_RECHECK_SECONDS=15
-RAPID_WATCH_HOT_RECHECK_SECONDS=10
-RAPID_WATCH_SLOW_RECHECK_SECONDS=30
-RAPID_WATCH_SCORE_MARGIN=10
-RAPID_WATCH_NEWBORN_MAX_AGE_MINUTES=10
-RAPID_WATCH_MAX_AGE_MINUTES=20
-RAPID_WATCH_MAX_MINUTES=15
-RAPID_WATCH_MAX_TOKENS=30
-RAPID_WATCH_MAX_DECLINES=3
 ```
 
 
@@ -292,7 +280,7 @@ Rapid Watch now ranks and labels watched newborn tokens as IMPROVING, STALLED, o
 
 
 ## V10.0 — Wide Runner Radar
-V10.0 fixes the discovery blind spot where a token could become a major runner after its newborn window and never reach scoring. Discovery no longer truncates the address list before loading market data. It batches up to 30 token addresses per DexScreener request, ranks the full discovery universe by priority, runner status, volume, liquidity and momentum, then processes the strongest candidates. GeckoTerminal trending and new-pool coverage is expanded across multiple pages while remaining below its public request-rate ceiling at the default 60-second feed refresh. Strong runners (default: $50k-$10m MC, $10k+ liquidity, $3k+ 5m volume plus 5m/1h momentum, buyer pressure or volume acceleration) are promoted into Rapid Watch even when older than the normal newborn watch window. Hard bundle/dev/holder/liquidity safety gates remain unchanged.
+V10.0 fixes the discovery blind spot where a token could become a major runner after its newborn window and never reach scoring. Discovery no longer truncates the address list before loading market data. It batches up to 30 token addresses per DexScreener request, ranks the full discovery universe by priority, runner status, volume, liquidity and momentum, then processes the strongest candidates. GeckoTerminal trending and new-pool coverage is expanded across multiple pages while remaining below its public request-rate ceiling at the default 60-second feed refresh. Strong runners (default: $50k-$10m MC, $10k+ liquidity, $3k+ 5m volume plus 5m/1h momentum, buyer pressure or volume acceleration) are prioritized for scoring even when older than the newborn window. Hard bundle/dev/holder/liquidity safety gates remain unchanged.
 
 
 ## v10.2 Platform Trend Radar
@@ -301,3 +289,6 @@ V10.0 fixes the discovery blind spot where a token could become a major runner a
 - Optional direct Pump.fun h1/h6 trending discovery uses CoinGecko Megafilter when COINGECKO_API_KEY is set.
 - Fomo publicly documents trending/social discovery but no stable public developer feed is wired here; do not depend on reverse-engineered private endpoints.
 - Trend candidates still pass normal Runner Evidence and hard Helius/risk gates.
+
+## v10.4 — 5-minute score revisit queue
+Rapid Watch has been removed. Candidates that complete scoring at **68/100 or higher** but are not yet entry-ready are queued for a revisit every **5 minutes**. A revisit remains in the queue only while its score stays at least 68; it leaves immediately if it qualifies for entry, drops below 68, or reaches the default 60-minute revisit window. The main discovery loop continues at `POLL_SECONDS` and is no longer accelerated by watched newborns.
