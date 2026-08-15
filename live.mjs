@@ -10,19 +10,54 @@ const statePath=path.resolve(config.dataDir,'broke-cat-live-state.json');
 fs.mkdirSync(config.dataDir,{recursive:true});
 const today=()=>new Date().toISOString().slice(0,10);
 
-function parseKey(raw){
+export function parseKey(raw){
   const value=String(raw||'').trim();
   if(!value)throw new Error('BS58_PRIVATE_KEY is empty');
-  let bytes;
-  if(value.startsWith('[')){const arr=JSON.parse(value);bytes=Uint8Array.from(arr)}else bytes=bs58.decode(value);
-  if(bytes.length===64)return Keypair.fromSecretKey(bytes);
-  if(bytes.length===32)return Keypair.fromSeed(bytes);
-  throw new Error(`Unsupported Solana private-key length ${bytes.length}; expected 32-byte seed or 64-byte secret key`);
+
+  const makeKeypair=(bytes,format)=>{
+    if(bytes.length===64)return {keypair:Keypair.fromSecretKey(Uint8Array.from(bytes)),format};
+    if(bytes.length===32)return {keypair:Keypair.fromSeed(Uint8Array.from(bytes)),format};
+    throw new Error(`Decoded ${format} private key is ${bytes.length} bytes; expected a 32-byte seed or 64-byte Solana secret key`);
+  };
+
+  // JSON byte array: [12,34,...]
+  if(value.startsWith('[')){
+    let arr;
+    try{arr=JSON.parse(value)}catch{throw new Error('Private key looks like a JSON byte array but could not be parsed')}
+    if(!Array.isArray(arr)||!arr.every(n=>Number.isInteger(n)&&n>=0&&n<=255))throw new Error('Private-key JSON array must contain only byte values 0-255');
+    return makeKeypair(Uint8Array.from(arr),'json-array');
+  }
+
+  // Hex, with or without 0x.
+  const hex=value.startsWith('0x')?value.slice(2):value;
+  if(/^[0-9a-fA-F]+$/.test(hex)&&hex.length%2===0){
+    const bytes=Uint8Array.from(Buffer.from(hex,'hex'));
+    if(bytes.length===32||bytes.length===64)return makeKeypair(bytes,'hex');
+  }
+
+  // Standard/base64url. Trust Wallet exports can contain +, / and =.
+  const looksBase64=/^[A-Za-z0-9+/_-]+={0,2}$/.test(value) && (/[+/=_-]/.test(value) || value.length%4===0);
+  if(looksBase64){
+    try{
+      const normalized=value.replace(/-/g,'+').replace(/_/g,'/');
+      const padded=normalized+'='.repeat((4-normalized.length%4)%4);
+      const bytes=Uint8Array.from(Buffer.from(padded,'base64'));
+      if(bytes.length===32||bytes.length===64)return makeKeypair(bytes,'base64');
+    }catch{}
+  }
+
+  // Base58 remains the normal Solana CLI/export format.
+  try{
+    const bytes=bs58.decode(value);
+    return makeKeypair(bytes,'base58');
+  }catch(err){
+    throw new Error(`Unsupported Solana private-key format. V8.2 accepts base58, base64, hex, or a JSON byte array. ${err?.message||''}`.trim());
+  }
 }
 function wallet(){
   const status=liveConfigStatus();
   if(!status.ready)throw new Error(`Live mode not armed: missing ${status.missing.join(', ')}`);
-  return parseKey(config.bs58PrivateKey);
+  return parseKey(config.bs58PrivateKey).keypair;
 }
 function rpcUrl(){return `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(config.heliusApiKey)}`}
 const SOLANA_PUBLIC_RPC='https://api.mainnet-beta.solana.com';
