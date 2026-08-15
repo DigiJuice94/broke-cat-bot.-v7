@@ -1,10 +1,10 @@
-# Broke Cat Bot V9.6 🐱
+# Broke Cat Bot V9.7 🐱
 
 V9.5 keeps the V9 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
 
 ## What changed
 
-## V9.6 Minimum Live Trade Guard
+## V9.7 Minimum Live Trade Guard
 
 - `MIN_TRADE_USD` now controls the minimum live buy size (default `$5`).
 - Broke Cat **does not round a smaller risk-based position up to $5**. If its dynamic sizing calculates less than the minimum, it skips the trade. This preserves the hard 30% wallet cap.
@@ -255,3 +255,7 @@ LIQUIDITY_CRITICAL_EXIT_EFFICIENCY_PCT=60
 LIQUIDITY_CONFIRM_PRICE_DROP_PCT=-15
 LIQUIDITY_MIN_BUY_SELL_RATIO=0.6
 ```
+
+
+## V9.7 trajectory-aware Rapid Runner Watchlist
+Rapid Watch now ranks and labels watched newborn tokens as IMPROVING, STALLED, or DETERIORATING using fresh score, market-cap growth, liquidity emergence/growth, viral bonus, cross-platform confirmations, buyer count, 5m volume, and price momentum. Improving tokens receive faster priority rechecks. Tokens older than the zero-liquidity grace window that remain stalled with $0 liquidity are dropped after repeated checks, reducing wasted API calls without discarding newborns that are measurably gaining traction. Hard bundle/dev/holder risk still overrides trajectory.
