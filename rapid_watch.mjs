@@ -19,6 +19,7 @@ function isNewbornUnverified(s,gate){
   return why.includes('liquidity below floor')||why.includes('bundle/launch risk unverified');
 }
 function isClose(s){return Number(s?.score||0)>=Math.max(55,config.minScore-config.rapidWatchScoreMargin)}
+function isRunner(s){return Boolean(config.runnerRadarEnabled&&s?.runnerRadar?.isRunner&&Number(s?.ageMin||Infinity)<=config.runnerRadarMaxAgeMinutes)}
 function snapshot(s){
   return {
     score:Number(s?.score||0),marketCap:Number(s?.marketCap||0),liquidity:Number(s?.liquidityUsd||0),
@@ -51,7 +52,7 @@ function suppress(address){suppressed.set(address,now()+Math.max(1,config.rapidW
 function prune(){
   const t=now();
   for(const [address,until] of suppressed){if(until<=t)suppressed.delete(address)}
-  for(const [address,w] of watch){if(t-w.firstSeenAt>maxWatchMs()||w.ageMin>config.rapidWatchMaxAgeMinutes)watch.delete(address)}
+  for(const [address,w] of watch){const ageCap=w.runner?config.runnerRadarMaxAgeMinutes:config.rapidWatchMaxAgeMinutes;const timeCap=w.runner?Math.max(maxWatchMs(),60*60_000):maxWatchMs();if(t-w.firstSeenAt>timeCap||w.ageMin>ageCap)watch.delete(address)}
   if(watch.size>config.rapidWatchMaxTokens){
     const rank=w=>((w.trend==='IMPROVING'?300:w.trend==='STALLED'?100:0)+w.bestScore+(w.last?.viral||0)+(w.last?.cross||0)*2);
     const sorted=[...watch.entries()].sort((a,b)=>rank(b[1])-rank(a[1])||a[1].nextCheckAt-b[1].nextCheckAt);
@@ -76,12 +77,12 @@ export function noteRapidWatch(s,gate){
     if(existing){watch.delete(address);suppress(address)}
     return existing?{action:'dropped',symbol:s.symbol,score:s.score,why:`hard reject: ${gate.why}`,trend:'DETERIORATING'}:null;
   }
-  const eligible=isClose(s)||isNewbornUnverified(s,gate);
+  const eligible=isClose(s)||isNewbornUnverified(s,gate)||isRunner(s);
   if(!eligible&&!existing)return null;
   const t=now();
   if(!existing){
     const delay=nextDelaySeconds(s,gate,null)*1000;
-    const w={tokenAddress:address,symbol:s.symbol,firstSeenAt:t,lastCheckedAt:t,nextCheckAt:t+delay,lastScore:cur.score,bestScore:cur.score,checks:1,declines:0,stalledChecks:0,ageMin:s.ageMin,lastWhy:gate.why,last:cur,trend:'NEW',strength:0};
+    const w={tokenAddress:address,symbol:s.symbol,firstSeenAt:t,lastCheckedAt:t,nextCheckAt:t+delay,lastScore:cur.score,bestScore:cur.score,checks:1,declines:0,stalledChecks:0,ageMin:s.ageMin,lastWhy:gate.why,last:cur,trend:'NEW',strength:0,runner:isRunner(s)};
     watch.set(address,w);prune();
     return{action:'added',symbol:s.symbol,score:s.score,why:gate.why,nextSeconds:delay/1000,trend:'NEW'};
   }
@@ -89,8 +90,8 @@ export function noteRapidWatch(s,gate){
   const declines=delta<0?existing.declines+1:(traj.trend==='IMPROVING'?0:existing.declines);
   const stalledChecks=traj.trend==='STALLED'?existing.stalledChecks+1:0;
   const delay=nextDelaySeconds(s,gate,traj)*1000;
-  Object.assign(existing,{symbol:s.symbol,lastCheckedAt:t,nextCheckAt:t+delay,lastScore:cur.score,bestScore:Math.max(existing.bestScore,cur.score),checks:existing.checks+1,declines,stalledChecks,ageMin:s.ageMin,lastWhy:gate.why,last:cur,trend:traj.trend,strength:traj.strength});
-  if(t-existing.firstSeenAt>maxWatchMs()||s.ageMin>config.rapidWatchMaxAgeMinutes){watch.delete(address);suppress(address);return{action:'dropped',symbol:s.symbol,score:s.score,why:'watch window expired',trend:traj.trend}}
+  Object.assign(existing,{symbol:s.symbol,lastCheckedAt:t,nextCheckAt:t+delay,lastScore:cur.score,bestScore:Math.max(existing.bestScore,cur.score),checks:existing.checks+1,declines,stalledChecks,ageMin:s.ageMin,lastWhy:gate.why,last:cur,trend:traj.trend,strength:traj.strength,runner:existing.runner||isRunner(s)});
+  const ageCap=existing.runner?config.runnerRadarMaxAgeMinutes:config.rapidWatchMaxAgeMinutes;const timeCap=existing.runner?Math.max(maxWatchMs(),60*60_000):maxWatchMs();if(t-existing.firstSeenAt>timeCap||s.ageMin>ageCap){watch.delete(address);suppress(address);return{action:'dropped',symbol:s.symbol,score:s.score,why:'watch window expired',trend:traj.trend}}
   if(declines>=config.rapidWatchMaxDeclines&&cur.score<config.minScore-config.rapidWatchScoreMargin){watch.delete(address);suppress(address);return{action:'dropped',symbol:s.symbol,score:s.score,why:'score deteriorated',trend:traj.trend}}
   const zeroLiquidity=cur.liquidity<=0;
   const oldEnough=Number(s.ageMin)>=config.rapidWatchZeroLiquidityDropAgeMinutes;

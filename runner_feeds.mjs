@@ -3,6 +3,7 @@ import {config} from './config.mjs';
 const GT='https://api.geckoterminal.com/api/v2';
 const BIRDEYE='https://public-api.birdeye.so';
 const BITQUERY='https://streaming.bitquery.io/graphql';
+const COINGECKO='https://pro-api.coingecko.com/api/v3';
 const PUMP_PROGRAM='6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 const cache={at:0,addresses:new Map(),statuses:{}};
 const num=v=>Number(v??0)||0;
@@ -21,13 +22,36 @@ async function birdeye(map){
 function includedTokenMap(j){const m=new Map();for(const x of j?.included||[])if(x?.type==='token'){const a=x?.attributes||{};if(a.address)m.set(x.id,{address:a.address,name:a.name,symbol:a.symbol})}return m}
 async function gecko(map){
   if(!config.geckoTerminalEnabled)return{enabled:false,why:'disabled'};
-  const urls=[`${GT}/networks/solana/trending_pools?include=base_token`,`${GT}/networks/new_pools?include=base_token`];let n=0;
-  for(const [idx,url] of urls.entries()){
-    const j=await getJson(url,{headers:{accept:'application/json'}});const toks=includedTokenMap(j);
-    for(const pool of j?.data||[]){const rel=pool?.relationships?.base_token?.data?.id;const tok=toks.get(rel);if(tok?.address){add(map,tok.address,idx===0?'gecko-trending':'gecko-new',{pool:pool?.attributes?.address,name:tok.name,symbol:tok.symbol});n++}}
+  const jobs=[];
+  for(let page=1;page<=Math.max(1,config.geckoTrendingPages);page++)jobs.push({kind:'gecko-trending',url:`${GT}/networks/solana/trending_pools?include=base_token&page=${page}`});
+  for(let page=1;page<=Math.max(1,config.geckoNewPages);page++)jobs.push({kind:'gecko-new',url:`${GT}/networks/new_pools?include=base_token&page=${page}`});
+  let n=0;
+  for(const job of jobs){
+    const j=await getJson(job.url,{headers:{accept:'application/json'}});const toks=includedTokenMap(j);
+    for(const pool of j?.data||[]){const rel=pool?.relationships?.base_token?.data?.id;const tok=toks.get(rel);if(tok?.address){add(map,tok.address,job.kind,{pool:pool?.attributes?.address,name:tok.name,symbol:tok.symbol});n++}}
   }
-  return{enabled:true,count:n};
+  return{enabled:true,count:n,pages:jobs.length};
 }
+
+async function pumpfunTrending(map){
+  if(!config.coinGeckoPlatformTrendingEnabled)return{enabled:false,why:'disabled'};
+  if(!config.coinGeckoApiKey)return{enabled:false,why:'missing COINGECKO_API_KEY'};
+  // CoinGecko's Megafilter can isolate Pump.fun and rank by trending momentum.
+  // We intentionally query both 1h and 6h so a runner can surface after its launch window.
+  let n=0;
+  for(const sort of ['h1_trending','h6_trending']){
+    const q=new URLSearchParams({networks:'solana',dexes:'pump-fun',sort,include:'base_token,dex,network'});
+    const j=await getJson(`${COINGECKO}/onchain/pools/megafilter?${q}`,{headers:{accept:'application/json','x-cg-pro-api-key':config.coinGeckoApiKey}});
+    const toks=includedTokenMap(j);
+    for(const pool of j?.data||[]){
+      const rel=pool?.relationships?.base_token?.data?.id;const tok=toks.get(rel);if(!tok?.address)continue;
+      const a=pool?.attributes||{};
+      add(map,tok.address,`pumpfun-${sort}`,{platform:'pump.fun',sort,pool:a.address,name:tok.name,symbol:tok.symbol,liquidityUsd:num(a.reserve_in_usd),marketCapUsd:num(a.market_cap_usd||a.fdv_usd),volume5m:num(a.volume_usd?.m5),volume1h:num(a.volume_usd?.h1),change5m:num(a.price_change_percentage?.m5),change1h:num(a.price_change_percentage?.h1)});n++;
+    }
+  }
+  return{enabled:true,count:n,sorts:['h1_trending','h6_trending']};
+}
+
 async function bitquery(map){
   if(!config.bitqueryEnabled)return{enabled:false,why:'disabled'};
   if(!config.bitqueryToken)return{enabled:false,why:'missing BITQUERY_API_TOKEN'};
@@ -65,10 +89,11 @@ export async function refreshRunnerFeeds(force=false){
   if(!config.crossPlatformEnabled)return{addresses:[],statuses:{disabled:true}};
   const ttl=Math.max(15,config.runnerFeedPollSeconds)*1000;if(!force&&Date.now()-cache.at<ttl)return{addresses:[...cache.addresses.keys()],statuses:cache.statuses};
   const map=new Map();const statuses={};
-  for(const [name,fn] of [['birdeye',birdeye],['geckoterminal',gecko],['pumpfun-bitquery',bitquery],['telegram',telegram]]){
+  for(const [name,fn] of [['birdeye',birdeye],['geckoterminal',gecko],['pumpfun-trending',pumpfunTrending],['pumpfun-bitquery',bitquery],['telegram',telegram]]){
     try{statuses[name]=await fn(map)}catch(e){statuses[name]={enabled:true,error:e?.message||String(e)}}
   }
   cache.at=Date.now();cache.addresses=map;cache.statuses=statuses;
   return{addresses:[...map.keys()].slice(0,config.runnerFeedMaxAddresses),statuses};
 }
+export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending'));const platforms=[...new Set(sources.map(x=>x.startsWith('pumpfun-')?'pump.fun':'geckoterminal'))];return{isTrending:sources.length>0,sources,platforms};}
 export function runnerFeedStatus(){return{lastRefresh:cache.at?new Date(cache.at).toISOString():null,addresses:cache.addresses.size,statuses:cache.statuses}}

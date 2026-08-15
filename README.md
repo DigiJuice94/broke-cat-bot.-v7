@@ -1,10 +1,40 @@
-# Broke Cat Bot V9.7 🐱
+# Broke Cat Bot v10.1 — Evidence Runner Radar
+
+V10.1 replaces the single-threshold Runner Radar with a multi-signal evidence score. It ranks capital/liquidity growth, 5m volume acceleration, trade participation, buyer share, trade growth, and 1h/5m continuation while penalizing thin-liquidity spikes and low-trade-count one-sided moves. The bot stores rolling token snapshots so it can detect a coin that becomes a runner later instead of only judging its first appearance. Helius holder count plus the existing bundle/dev/top-holder gates remain independent confirmation/safety signals. The market-cap/liquidity settings are broad eligibility floors, not the definition of a runner.
+
+# Broke Cat Bot V9.9
+
+## V9.9 — one-time X billing alert + feed visibility
+
+If X viral intelligence returns a billing/credits/payment error, Broke Cat now sends one alert for that outage, marks viral status as `PAY`, and pauses further X intel requests for 30 minutes instead of repeatedly hammering the paid endpoint. Market and on-chain scanning continue independently. A successful X intel request clears the billing state so a future separate outage can alert once again.
+
+At startup the console also prints a `DATA FEEDS` line showing the current status of DexScreener, GeckoTerminal, Birdeye, Pump.fun/Bitquery, Telegram, Helius, and Jupiter.
+
+
+## V9.8 — X cost guard + viral status fix
+
+V9.8 keeps Rapid Watch at 10–15 second market rechecks but separates those from paid X reads. X viral checks are now limited to one recent-search request with up to 10 returned Posts, cached for 10 minutes per token, and deferred while liquidity is below $500. Broad pre-launch X radar is disabled by default and can be explicitly re-enabled.
+
+The console now distinguishes `viral DEFER`, `viral ERR`, cached/live hype, and a real `viral +N` bonus instead of making every unavailable lookup look like a genuine zero. If X temporarily errors, the last cached viral result is preserved as stale rather than reset to zero.
+
+Recommended Railway variables:
+```
+X_INTEL_ENABLED=true
+X_PRELAUNCH_RADAR_ENABLED=false
+X_HYPE_CACHE_SECONDS=600
+X_TOKEN_SEARCH_MAX_RESULTS=10
+X_TOKEN_SEARCH_MAX_QUERIES=1
+X_HYPE_MIN_LIQUIDITY_USD=500
+VIRAL_SHORTLIST_PER_SCAN=1
+```
+
+# Broke Cat Bot V9.8 🐱
 
 V9.5 keeps the V9 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
 
 ## What changed
 
-## V9.7 Minimum Live Trade Guard
+## V9.8 Minimum Live Trade Guard
 
 - `MIN_TRADE_USD` now controls the minimum live buy size (default `$5`).
 - Broke Cat **does not round a smaller risk-based position up to $5**. If its dynamic sizing calculates less than the minimum, it skips the trade. This preserves the hard 30% wallet cap.
@@ -257,5 +287,17 @@ LIQUIDITY_MIN_BUY_SELL_RATIO=0.6
 ```
 
 
-## V9.7 trajectory-aware Rapid Runner Watchlist
+## V9.8 trajectory-aware Rapid Runner Watchlist
 Rapid Watch now ranks and labels watched newborn tokens as IMPROVING, STALLED, or DETERIORATING using fresh score, market-cap growth, liquidity emergence/growth, viral bonus, cross-platform confirmations, buyer count, 5m volume, and price momentum. Improving tokens receive faster priority rechecks. Tokens older than the zero-liquidity grace window that remain stalled with $0 liquidity are dropped after repeated checks, reducing wasted API calls without discarding newborns that are measurably gaining traction. Hard bundle/dev/holder risk still overrides trajectory.
+
+
+## V10.0 — Wide Runner Radar
+V10.0 fixes the discovery blind spot where a token could become a major runner after its newborn window and never reach scoring. Discovery no longer truncates the address list before loading market data. It batches up to 30 token addresses per DexScreener request, ranks the full discovery universe by priority, runner status, volume, liquidity and momentum, then processes the strongest candidates. GeckoTerminal trending and new-pool coverage is expanded across multiple pages while remaining below its public request-rate ceiling at the default 60-second feed refresh. Strong runners (default: $50k-$10m MC, $10k+ liquidity, $3k+ 5m volume plus 5m/1h momentum, buyer pressure or volume acceleration) are promoted into Rapid Watch even when older than the normal newborn watch window. Hard bundle/dev/holder/liquidity safety gates remain unchanged.
+
+
+## v10.2 Platform Trend Radar
+- Platform trending is a discovery/priority signal, never an automatic trade signal.
+- GeckoTerminal trending pools remain active with no extra key when GECKOTERMINAL_ENABLED=true.
+- Optional direct Pump.fun h1/h6 trending discovery uses CoinGecko Megafilter when COINGECKO_API_KEY is set.
+- Fomo publicly documents trending/social discovery but no stable public developer feed is wired here; do not depend on reverse-engineered private endpoints.
+- Trend candidates still pass normal Runner Evidence and hard Helius/risk gates.

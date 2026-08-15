@@ -4,6 +4,7 @@ import { Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
 import { dynamicRiskDecision, parseKey } from './live.mjs';
 import { detectScripts, launchSignal, tokenSearchTerms, transliterate } from './multilingual.mjs';
+import { runnerMetrics } from './dexscreener.mjs';
 
 const low=classifyHolderRisk({totalSupply:1000,holders:[100,70,60,50,40,30,20,20,20,20].map((amount,i)=>({owner:`w${i}`,amount}))});
 assert.equal(low.holderRisk,'medium');
@@ -33,4 +34,6 @@ assert.equal(transliterate('КОТ'),'KOT','Cyrillic transliteration failed');
 assert.ok(launchSignal('公式コントラクトを公開 ローンチ'),'Japanese launch phrase detection failed');
 assert.ok(launchSignal('Адрес контракта опубликован'),'Russian launch phrase detection failed');
 assert.ok(launchSignal('合约地址已发布'),'Chinese launch phrase detection failed');
-console.log('Broke Cat V9.2 self-test passed');
+const runner=runnerMetrics({pairCreatedAt:Date.now()-90*60000,marketCap:1600000,liquidityUsd:61700,volume5m:10000,volume1h:100000,buys5m:40,sells5m:20,priceChange5m:-8,priceChange1h:120});
+assert.equal(runner.isRunner,true,'established 1h runner must be detected even after a 5m pullback');
+console.log('Broke Cat V10.0 self-test passed');

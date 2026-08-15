@@ -78,7 +78,7 @@ export function classifyHolderRisk(snapshot) {
   let holderRisk = 'low';
   if (top1 >= config.holderTop1HighPct || top5 >= config.holderTop5HighPct || top10 >= config.holderTop10HighPct) holderRisk='high';
   else if (top1 >= config.holderTop1MediumPct || top5 >= config.holderTop5MediumPct || top10 >= config.holderTop10MediumPct) holderRisk='medium';
-  return { holderRisk, top1Pct:top1, top5Pct:top5, top10Pct:top10, topOwners:holders.slice(0,10) };
+  return { holderRisk, holderCount:holders.length, top1Pct:top1, top5Pct:top5, top10Pct:top10, topOwners:holders.slice(0,10) };
 }
 
 export async function analyzeRisk(c) {
@@ -117,7 +117,7 @@ export async function analyzeRisk(c) {
 
     return {bundleRisk,holderRisk:holder.holderRisk,devRisk,confidence,estimatedLinkedSupplyPct,
       linkedWalletCount:linkedWallets.length,sharedFunderClusters:shared.length,crowdedLaunchSlots:cluster.crowdedSlots.length,
-      top1Pct:holder.top1Pct,top5Pct:holder.top5Pct,top10Pct:holder.top10Pct,mintAuthority:mintInfo.mintAuthority,freezeAuthority:mintInfo.freezeAuthority,notes};
+      holderCount:holder.holderCount,top1Pct:holder.top1Pct,top5Pct:holder.top5Pct,top10Pct:holder.top10Pct,mintAuthority:mintInfo.mintAuthority,freezeAuthority:mintInfo.freezeAuthority,notes};
   } catch (err) {
     return {bundleRisk:'unknown',holderRisk:'unknown',devRisk:'unknown',confidence:'error',notes:[`V2 risk analysis failed safely: ${err.message}`]};
   }
