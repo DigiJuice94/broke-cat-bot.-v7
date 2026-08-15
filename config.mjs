@@ -24,6 +24,7 @@ export const config={
   heliusApiKey:s('HELIUS_API_KEY'),
   jupiterApiKey:s('JUPITER_API_KEY'),
   bs58PrivateKey:s('BS58_PRIVATE_KEY'),
+  expectedWalletAddress:s('EXPECTED_WALLET_ADDRESS'),
   telegramBotToken:s('TELEGRAM_BOT_TOKEN'),telegramChatId:s('TELEGRAM_CHAT_ID'),
   runOnce:process.env.RUN_ONCE==='1',
   xPostingEnabled:b('X_POSTING_ENABLED',false),xApiKey:s('X_API_KEY'),xApiSecret:s('X_API_SECRET'),xAccessToken:s('X_ACCESS_TOKEN'),xAccessTokenSecret:s('X_ACCESS_TOKEN_SECRET'),xDailyReportHourUtc:n('X_DAILY_REPORT_HOUR_UTC',23),

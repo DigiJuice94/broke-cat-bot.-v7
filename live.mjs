@@ -25,11 +25,24 @@ function wallet(){
   return parseKey(config.bs58PrivateKey);
 }
 function rpcUrl(){return `https://mainnet.helius-rpc.com/?api-key=${encodeURIComponent(config.heliusApiKey)}`}
-async function rpc(method,params=[]){
-  const r=await fetch(rpcUrl(),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
-  if(!r.ok)throw new Error(`Helius RPC ${r.status}: ${await r.text()}`);
-  const j=await r.json();if(j.error)throw new Error(`Helius RPC ${method}: ${j.error.message||JSON.stringify(j.error)}`);return j.result;
+const SOLANA_PUBLIC_RPC='https://api.mainnet-beta.solana.com';
+async function rpcAt(url,label,method,params=[]){
+  const r=await fetch(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params})});
+  if(!r.ok)throw new Error(`${label} RPC ${r.status}: ${await r.text()}`);
+  const j=await r.json();if(j.error)throw new Error(`${label} RPC ${method}: ${j.error.message||JSON.stringify(j.error)}`);return j.result;
 }
+async function rpc(method,params=[]){return rpcAt(rpcUrl(),'Helius',method,params)}
+async function solBalanceCrossCheck(address){
+  const params=[address,{commitment:'confirmed'}];
+  const [helius,publicRpc]=await Promise.allSettled([rpcAt(rpcUrl(),'Helius','getBalance',params),rpcAt(SOLANA_PUBLIC_RPC,'Solana public','getBalance',params)]);
+  const h=helius.status==='fulfilled'?Number(helius.value?.value||0):null;
+  const p=publicRpc.status==='fulfilled'?Number(publicRpc.value?.value||0):null;
+  const candidates=[['helius',h],['solana-public',p]].filter(([,v])=>Number.isFinite(v));
+  if(!candidates.length)throw new Error(`Could not read SOL balance from Helius or Solana public RPC. Helius: ${helius.reason?.message||'failed'} | Public: ${publicRpc.reason?.message||'failed'}`);
+  candidates.sort((a,b)=>b[1]-a[1]);
+  return {lamports:candidates[0][1],source:candidates[0][0],heliusLamports:h,publicLamports:p};
+}
+
 export async function solUsdPrice(){
   const r=await fetch(`https://api.dexscreener.com/token-pairs/v1/solana/${SOL_MINT}`,{headers:{accept:'application/json'}});
   if(!r.ok)throw new Error(`Could not fetch SOL/USD price: DEX Screener ${r.status}`);
@@ -52,13 +65,17 @@ export function liveStateFilePath(){return statePath}
 export function walletAddress(){try{return wallet().publicKey.toBase58()}catch{return null}}
 export async function walletSnapshot(){
   const w=wallet().publicKey.toBase58();
-  const lamports=await rpc('getBalance',[w,{commitment:'confirmed'}]);
-  const sol=Number(lamports?.value||0)/LAMPORTS_PER_SOL;
+  if(config.expectedWalletAddress && w!==config.expectedWalletAddress){
+    throw new Error(`WALLET ADDRESS MISMATCH: key derives ${w}, but EXPECTED_WALLET_ADDRESS is ${config.expectedWalletAddress}. Live trading blocked.`);
+  }
+  const bal=await solBalanceCrossCheck(w);
+  const sol=Number(bal.lamports||0)/LAMPORTS_PER_SOL;
   const solUsd=await solUsdPrice();
-  return {address:w,sol,solUsd,solValueUsd:sol*solUsd};
+  return {address:w,sol,solUsd,solValueUsd:sol*solUsd,balanceSource:bal.source,heliusLamports:bal.heliusLamports,publicLamports:bal.publicLamports};
 }
 export async function assertLiveFunding(){
   const snap=await walletSnapshot();
+  console.log(`Wallet diagnostic | derived ${snap.address} | Helius ${snap.heliusLamports==null?'ERR':(snap.heliusLamports/LAMPORTS_PER_SOL).toFixed(6)} SOL | Public RPC ${snap.publicLamports==null?'ERR':(snap.publicLamports/LAMPORTS_PER_SOL).toFixed(6)} SOL | using ${snap.balanceSource}`);
   const tradeSol=config.livePositionUsd/snap.solUsd;
   const needed=tradeSol+config.minSolReserve;
   if(snap.sol<needed)throw new Error(`Live wallet needs about ${needed.toFixed(6)} SOL (~$${config.livePositionUsd.toFixed(2)} trade + ${config.minSolReserve} SOL reserve). Found ${snap.sol.toFixed(6)} SOL (~$${snap.solValueUsd.toFixed(2)}).`);

@@ -18,10 +18,10 @@ let lastScanAt=null,lastError=null,scans=0,lastWallet=null;
 const server=http.createServer(async(req,res)=>{
   if(req.url==='/health'){
     try{if(isLive)lastWallet=await walletSnapshot()}catch{}
-    const payload=isLive?{ok:true,version:'v8',mode:'LIVE',wallet:walletAddress(),sol:lastWallet?.sol??null,solUsd:lastWallet?.solUsd??null,solValueUsd:lastWallet?.solValueUsd??null,dailyPnl:state.dailyPnl,realizedPnl:state.realizedPnl,hasPosition:Boolean(state.position),xPosting:xReady(),scans,lastScanAt,lastError,stateFile:liveStateFilePath()}:{ok:true,version:'v8',mode:'paper',cash:state.cash,equity:equityUsd(state),dailyPnl:state.dailyPnl,hasPosition:Boolean(state.position),xPosting:xReady(),scans,lastScanAt,lastError,stateFile:stateFilePath()};
+    const payload=isLive?{ok:true,version:'v8.1',mode:'LIVE',wallet:walletAddress(),sol:lastWallet?.sol??null,solUsd:lastWallet?.solUsd??null,solValueUsd:lastWallet?.solValueUsd??null,dailyPnl:state.dailyPnl,realizedPnl:state.realizedPnl,hasPosition:Boolean(state.position),xPosting:xReady(),scans,lastScanAt,lastError,stateFile:liveStateFilePath()}:{ok:true,version:'v8.1',mode:'paper',cash:state.cash,equity:equityUsd(state),dailyPnl:state.dailyPnl,hasPosition:Boolean(state.position),xPosting:xReady(),scans,lastScanAt,lastError,stateFile:stateFilePath()};
     res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify(payload));return;
   }
-  res.writeHead(200,{'content-type':'text/plain'});res.end(`Broke Cat Bot V8 ${isLive?'LIVE MODE':'PAPER MODE'} 🐱`);
+  res.writeHead(200,{'content-type':'text/plain'});res.end(`Broke Cat Bot V8.1 ${isLive?'LIVE MODE':'PAPER MODE'} 🐱`);
 });
 server.listen(config.port,'0.0.0.0',()=>console.log(`Health server listening on :${config.port} | ${isLive?'LIVE':'PAPER'} MODE`));
 const persist=()=>isLive?saveLiveState(state):saveState(state);
@@ -36,8 +36,8 @@ async function maybeDailyX(){
   else{const stats=tradeStats(state);const result=await postToX(dailyPost({mode:'PAPER',cash:state.cash,realizedPnl:state.realizedPnl,dailyPnl:state.dailyPnl,...stats}));if(result.ok){state.lastXDailyReportDay=day;persist()}}
 }
 
-if(isLive){lastWallet=await assertLiveFunding();await alert(`🐱 Broke Cat Bot V8 STARTED | 🔴 LIVE MONEY | wallet ${walletAddress()} | SOL ${lastWallet.sol.toFixed(6)} (~$${lastWallet.solValueUsd.toFixed(2)}) | max trade ~$${config.livePositionUsd.toFixed(2)} | SOL reserve ${config.minSolReserve} | daily stop -$${config.maxDailyLoss.toFixed(2)}`)}
-else await alert(`🐱 Broke Cat Bot V8 started | PAPER MODE | bankroll $${state.cash.toFixed(2)} | min score ${config.minScore} | on-chain risk ${config.heliusApiKey?'ON':'OFF'} | X ${xReady()?'ON':'OFF'}`);
+if(isLive){lastWallet=await assertLiveFunding();await alert(`🐱 Broke Cat Bot V8.1 STARTED | 🔴 LIVE MONEY | wallet ${walletAddress()} | SOL ${lastWallet.sol.toFixed(6)} (~$${lastWallet.solValueUsd.toFixed(2)}) | max trade ~$${config.livePositionUsd.toFixed(2)} | SOL reserve ${config.minSolReserve} | daily stop -$${config.maxDailyLoss.toFixed(2)}`)}
+else await alert(`🐱 Broke Cat Bot V8.1 started | PAPER MODE | bankroll $${state.cash.toFixed(2)} | min score ${config.minScore} | on-chain risk ${config.heliusApiKey?'ON':'OFF'} | X ${xReady()?'ON':'OFF'}`);
 
 do{
   try{

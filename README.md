@@ -1,4 +1,4 @@
-# 🐱 Broke Cat Bot V8 — SOL-Native Live Trading
+# 🐱 Broke Cat Bot V8.1 — SOL-Native Live Trading
 
 Broke Cat V8 is the SOL-native version of the Railway bot. It keeps the V7 scanner, Helius launch/bundle-risk analysis, holder/dev filters, one-position limit, $1 daily realized-loss kill switch, Jupiter execution, X posts, Telegram alerts, persistent state, and `/health` monitoring — but **live entries now spend SOL instead of requiring USDC**.
 
@@ -108,3 +108,8 @@ npm install
 npm run selftest
 npm start
 ```
+
+
+## V8.1 wallet diagnostic fix
+
+Add `EXPECTED_WALLET_ADDRESS` to Railway with the public Solana address you intend Broke Cat to trade from. V8.1 derives the public address from `BS58_PRIVATE_KEY`, blocks live trading if it does not match, and cross-checks native SOL balance using both Helius and Solana public RPC. Startup logs show both readings and which source is used. Never place the private key in GitHub.
