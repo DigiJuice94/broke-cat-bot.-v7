@@ -1,8 +1,22 @@
-# Broke Cat Bot V9.5 🐱
+# Broke Cat Bot V9.6 🐱
 
 V9.5 keeps the V9 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
 
 ## What changed
+
+## V9.6 Minimum Live Trade Guard
+
+- `MIN_TRADE_USD` now controls the minimum live buy size (default `$5`).
+- Broke Cat **does not round a smaller risk-based position up to $5**. If its dynamic sizing calculates less than the minimum, it skips the trade. This preserves the hard 30% wallet cap.
+- Example: a $10.81 wallet has a 30% ceiling of about $3.24, so no live buy can occur until the calculated position reaches at least $5.
+- A skipped small position does not crash the scanner; Broke Cat continues evaluating the next candidate.
+- Startup no longer fails merely because the wallet cannot currently produce a $5 position; it can continue scanning while preserving the SOL reserve.
+
+Railway variable:
+```env
+MIN_TRADE_USD=5
+```
+
 
 
 ## V9.5 Rapid Runner Watchlist

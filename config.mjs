@@ -6,7 +6,7 @@ export const SOL_MINT='So11111111111111111111111111111111111111112';
 export const config={
   tradingMode:s('TRADING_MODE','paper').toLowerCase(), liveAck:s('LIVE_TRADING_ACK',''),
   bankroll:n('PAPER_BANKROLL_USD',11), maxDailyLoss:n('MAX_DAILY_LOSS_USD',3), minScore:n('MIN_SCORE',85), pollSeconds:n('POLL_SECONDS',30),
-  livePositionUsd:n('LIVE_POSITION_USD',2), minSolReserve:n('MIN_SOL_RESERVE',0.003),
+  livePositionUsd:n('LIVE_POSITION_USD',2), minTradeUsd:n('MIN_TRADE_USD',5), minSolReserve:n('MIN_SOL_RESERVE',0.003),
   positionSizingMode:s('POSITION_SIZING_MODE','dynamic').toLowerCase(), targetPositionPct:n('TARGET_POSITION_PCT',3), maxPositionUsd:n('MAX_POSITION_USD',100), maxPositionToLiquidityPct:n('MAX_POSITION_TO_LIQUIDITY_PCT',0.5),
   dynamicMinPositionPct:n('DYNAMIC_MIN_POSITION_PCT',5), dynamicMaxPositionPct:n('DYNAMIC_MAX_POSITION_PCT',30), dynamicMaxPositionUsd:n('DYNAMIC_MAX_POSITION_USD',0),
   hardStopPct:n('HARD_STOP_PCT',35), legacyStopLossPct:n('STOP_LOSS_PCT',35),

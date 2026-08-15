@@ -141,11 +141,13 @@ export async function walletSnapshot(){
 export async function assertLiveFunding(){
   const snap=await walletSnapshot();
   console.log(`Wallet diagnostic | derived ${snap.address} | Helius ${snap.heliusLamports==null?'ERR':(snap.heliusLamports/LAMPORTS_PER_SOL).toFixed(6)} SOL | Public RPC ${snap.publicLamports==null?'ERR':(snap.publicLamports/LAMPORTS_PER_SOL).toFixed(6)} SOL | using ${snap.balanceSource}`);
-  const startupPct=config.positionSizingMode==='dynamic'?Math.min(30,Math.max(0,config.dynamicMinPositionPct)):config.targetPositionPct;
-  const startupTargetUsd=config.positionSizingMode==='dynamic'?snap.solValueUsd*(startupPct/100):config.positionSizingMode==='percent'?Math.min(config.maxPositionUsd,snap.solValueUsd*(config.targetPositionPct/100)):config.livePositionUsd;
-  const tradeSol=startupTargetUsd/snap.solUsd;const needed=tradeSol+config.minSolReserve;
-  if(snap.sol<needed)throw new Error(`Live wallet needs about ${needed.toFixed(6)} SOL (~$${startupTargetUsd.toFixed(2)} target trade + ${config.minSolReserve} SOL reserve). Found ${snap.sol.toFixed(6)} SOL (~$${snap.solValueUsd.toFixed(2)}).`);
-  return {...snap,tradeSolRequired:tradeSol};
+  // Startup only verifies that the live wallet can be read and that the fee reserve exists.
+  // Trade-size eligibility (including MIN_TRADE_USD) is checked per candidate so a
+  // small wallet can keep scanning instead of crashing the process.
+  if(snap.sol<=config.minSolReserve)throw new Error(`Live wallet has ${snap.sol.toFixed(6)} SOL, which is not above the ${config.minSolReserve} SOL reserve.`);
+  const spendableUsd=Math.max(0,(snap.sol-config.minSolReserve)*snap.solUsd);
+  if(spendableUsd<config.minTradeUsd)console.log(`Wallet can scan, but spendable value ~$${spendableUsd.toFixed(2)} is below MIN_TRADE_USD $${config.minTradeUsd.toFixed(2)}. Trades will be skipped until sizing reaches the minimum.`);
+  return {...snap,spendableUsd};
 }
 async function jupiterSwap(inputMint,outputMint,amountRaw){
   const signer=wallet();
@@ -242,7 +244,9 @@ export async function openLive(s,c){
   if(s.dailyPnl<=-config.maxDailyLoss)throw new Error('Daily loss limit reached');
   const snap=await walletSnapshot();
   const sizing=await positionSizeUsd(c,snap);const sizeUsd=sizing.usd;
-  if(sizeUsd<0.50)throw new Error(`Not enough spendable SOL after reserve. Wallet has ${snap.sol.toFixed(6)} SOL (~$${snap.solValueUsd.toFixed(2)})`);
+  // Never force a small calculated position upward: doing so could violate the 30%
+  // wallet cap. If Broke Cat's risk sizing produces less than MIN_TRADE_USD, skip it.
+  if(sizeUsd<config.minTradeUsd)return{skipped:true,reason:`calculated position $${sizeUsd.toFixed(2)} is below MIN_TRADE_USD $${config.minTradeUsd.toFixed(2)}`,calculatedUsd:sizeUsd,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED'};
   const sizeSol=sizeUsd/snap.solUsd,amountRaw=Math.floor(sizeSol*LAMPORTS_PER_SOL);
   const swap=await jupiterSwap(SOL_MINT,c.tokenAddress,amountRaw);
   const actualCostSol=Number(swap.inputRaw)/LAMPORTS_PER_SOL,actualCostUsd=actualCostSol*snap.solUsd;
