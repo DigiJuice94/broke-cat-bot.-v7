@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { classifyHolderRisk } from './risk.mjs';
 import { Keypair } from '@solana/web3.js';
 import bs58 from 'bs58';
-import { parseKey } from './live.mjs';
+import { dynamicRiskDecision, parseKey } from './live.mjs';
+import { detectScripts, launchSignal, tokenSearchTerms, transliterate } from './multilingual.mjs';
 
 const low=classifyHolderRisk({totalSupply:1000,holders:[100,70,60,50,40,30,20,20,20,20].map((amount,i)=>({owner:`w${i}`,amount}))});
 assert.equal(low.holderRisk,'medium');
@@ -21,4 +22,15 @@ for(const [name,encoded] of cases){
   const parsed=parseKey(encoded);
   assert.equal(parsed.keypair.publicKey.toBase58(),kp.publicKey.toBase58(),`${name} key parser mismatch`);
 }
-console.log('Broke Cat V8.2 self-test passed');
+const maxed=dynamicRiskDecision({score:100,liquidityUsd:500000,lane:'Momentum Cat',hype:{bonus:15},risk:{bundleRisk:'low',holderRisk:'low',devRisk:'low',estimatedLinkedSupplyPct:0}});
+assert.ok(maxed.pct<=30,'dynamic sizing must never exceed 30%');
+const risky=dynamicRiskDecision({score:99,liquidityUsd:8000,lane:'Early Cat',hype:{bonus:15},risk:{bundleRisk:'medium',holderRisk:'medium',devRisk:'low',estimatedLinkedSupplyPct:8}});
+assert.ok(risky.pct<=7,'risk/liquidity caps should shrink allocation');
+assert.ok(tokenSearchTerms({name:'猫コイン',symbol:'猫王',tokenAddress:'11111111111111111111111111111111'}).some(x=>x.includes('猫コイン')),'Unicode token name must remain searchable');
+assert.ok(detectScripts('猫コイン').includes('Han'),'Han script detection failed');
+assert.ok(detectScripts('КОТ').includes('Cyrillic'),'Cyrillic script detection failed');
+assert.equal(transliterate('КОТ'),'KOT','Cyrillic transliteration failed');
+assert.ok(launchSignal('公式コントラクトを公開 ローンチ'),'Japanese launch phrase detection failed');
+assert.ok(launchSignal('Адрес контракта опубликован'),'Russian launch phrase detection failed');
+assert.ok(launchSignal('合约地址已发布'),'Chinese launch phrase detection failed');
+console.log('Broke Cat V9.2 self-test passed');

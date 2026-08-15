@@ -1,0 +1,6 @@
+import fs from 'node:fs';import path from 'node:path';import {config} from './config.mjs';
+const p=path.resolve(config.dataDir,'broke-cat-analytics.json');
+export function loadAnalytics(){try{return JSON.parse(fs.readFileSync(p,'utf8'))}catch{return{scans:0,candidates:0,rejections:{},entries:0,topRejected:[],laneCounts:{},lastReport:null}}}
+export function saveAnalytics(a){fs.writeFileSync(p,JSON.stringify(a,null,2))}
+export function noteCandidate(a,s,gate){a.candidates++;a.laneCounts[s.lane]=(a.laneCounts[s.lane]||0)+1;if(gate.ok){a.entries++;return}const reason=gate.why||'unknown';a.rejections[reason]=(a.rejections[reason]||0)+1;a.topRejected.push({symbol:s.symbol,score:s.score,lane:s.lane,marketCap:s.marketCap,why:reason,viralBonus:s.hype?.bonus||0,at:new Date().toISOString()});a.topRejected.sort((x,y)=>y.score-x.score);a.topRejected=a.topRejected.slice(0,config.topRejectedKeep)}
+export function reportText(a){const rejects=Object.entries(a.rejections).sort((x,y)=>y[1]-x[1]).slice(0,6).map(([k,v])=>`${v} ${k}`).join(' | ');const top=a.topRejected.slice(0,5).map(x=>`${x.symbol} ${x.score}(${x.lane})`).join(', ');return `🐱 REJECTION REPORT | scans ${a.scans} | candidates ${a.candidates} | entries ${a.entries}\n${rejects||'No rejections yet'}\nClosest: ${top||'none'}`}

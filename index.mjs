@@ -1,69 +1,54 @@
 import http from 'node:http';
 import {config,liveConfigStatus} from './config.mjs';
 import {discoverCandidates,refreshPair} from './dexscreener.mjs';
-import {entryAllowed,scoreCandidate} from './scoring.mjs';
+import {entryAllowed,quickScore,scoreCandidate} from './scoring.mjs';
+import {analyzeRisk} from './risk.mjs';
 import {equityUsd,loadState,openPaper,saveState,stateFilePath,tradeStats,updatePaper} from './paper.mjs';
 import {alert} from './telegram.mjs';
-import {buyPost,dailyPost,postToX,sellPost,xReady} from './x.mjs';
-import {assertLiveFunding,closeLive,exitReason,liveStateFilePath,loadLiveState,openLive,saveLiveState,tradeStatsLive,walletAddress,walletSnapshot} from './live.mjs';
+import {buyPost,dailyPost,holdingPost,idlePost,partialPost,postToX,sellPost,xReady} from './x.mjs';
+import {assertLiveFunding,closeLive,emergencyRiskReason,liveStateFilePath,loadLiveState,openLive,partialTakeProfit,positionAction,saveLiveState,tradeStatsLive,walletAddress,walletEquitySnapshot,walletSnapshot} from './live.mjs';
+import {intelStatus,priorityAddresses,scanPrelaunchRadar,startXFilteredStream,streamStatus,tokenHype} from './x_intel.mjs';
+import {loadAnalytics,noteCandidate,reportText,saveAnalytics} from './analytics.mjs';
+import {confirmationFor,refreshRunnerFeeds,runnerFeedStatus} from './runner_feeds.mjs';
 
-const sleep=ms=>new Promise(r=>setTimeout(r,ms));
-const seen=new Map();
-const isLive=config.tradingMode==='live';
-if(!['paper','live'].includes(config.tradingMode))throw new Error('TRADING_MODE must be paper or live');
-if(isLive){const st=liveConfigStatus();if(!st.ready)throw new Error(`LIVE MODE NOT ARMED. Missing: ${st.missing.join(', ')}`)}
-const state=isLive?loadLiveState():loadState();
-let lastScanAt=null,lastError=null,scans=0,lastWallet=null;
-
-const server=http.createServer(async(req,res)=>{
-  if(req.url==='/health'){
-    try{if(isLive)lastWallet=await walletSnapshot()}catch{}
-    const payload=isLive?{ok:true,version:'v8.1',mode:'LIVE',wallet:walletAddress(),sol:lastWallet?.sol??null,solUsd:lastWallet?.solUsd??null,solValueUsd:lastWallet?.solValueUsd??null,dailyPnl:state.dailyPnl,realizedPnl:state.realizedPnl,hasPosition:Boolean(state.position),xPosting:xReady(),scans,lastScanAt,lastError,stateFile:liveStateFilePath()}:{ok:true,version:'v8.1',mode:'paper',cash:state.cash,equity:equityUsd(state),dailyPnl:state.dailyPnl,hasPosition:Boolean(state.position),xPosting:xReady(),scans,lastScanAt,lastError,stateFile:stateFilePath()};
-    res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify(payload));return;
-  }
-  res.writeHead(200,{'content-type':'text/plain'});res.end(`Broke Cat Bot V8.1 ${isLive?'LIVE MODE':'PAPER MODE'} 🐱`);
-});
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));const seen=new Map();const isLive=config.tradingMode==='live';
+if(!['paper','live'].includes(config.tradingMode))throw new Error('TRADING_MODE must be paper or live');if(isLive){const st=liveConfigStatus();if(!st.ready)throw new Error(`LIVE MODE NOT ARMED. Missing: ${st.missing.join(', ')}`)}
+const state=isLive?loadLiveState():loadState(),analytics=loadAnalytics();let lastScanAt=null,lastError=null,scans=0,lastWallet=null;const processStartedAt=Date.now();
+await startXFilteredStream((ca)=>alert(`🐱 X STREAM CA DETECTED ${ca} | moved to priority queue`).catch(()=>{}));
+const server=http.createServer(async(req,res)=>{if(req.url==='/health'){try{if(isLive)lastWallet=await walletEquitySnapshot(state)}catch{}const payload=isLive?{ok:true,version:'v9.3',mode:'LIVE',wallet:walletAddress(),sol:lastWallet?.sol??null,totalWalletUsd:lastWallet?.totalWalletUsd??null,dailyPnl:state.dailyPnl,realizedPnl:state.realizedPnl,hasPosition:Boolean(state.position),moonBags:state.moonBags?.length||0,xPosting:xReady(),xIntel:{...intelStatus(),stream:streamStatus()},runnerFeeds:runnerFeedStatus(),scans,lastScanAt,lastError,stateFile:liveStateFilePath()}:{ok:true,version:'v9.3',mode:'paper',cash:state.cash,equity:equityUsd(state),dailyPnl:state.dailyPnl,hasPosition:Boolean(state.position),moonBags:state.moonBags?.length||0,xPosting:xReady(),xIntel:{...intelStatus(),stream:streamStatus()},runnerFeeds:runnerFeedStatus(),scans,lastScanAt,lastError,stateFile:stateFilePath()};res.writeHead(200,{'content-type':'application/json'});res.end(JSON.stringify(payload));return}res.writeHead(200,{'content-type':'text/plain'});res.end(`Broke Cat Bot V9.3 ${isLive?'LIVE MODE':'PAPER MODE'} 🐱`)});
 server.listen(config.port,'0.0.0.0',()=>console.log(`Health server listening on :${config.port} | ${isLive?'LIVE':'PAPER'} MODE`));
-const persist=()=>isLive?saveLiveState(state):saveState(state);
-process.on('SIGTERM',()=>{persist();server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),5000).unref()});
-process.on('SIGINT',()=>{persist();server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),5000).unref()});
-
-async function maybeDailyX(){
-  if(!xReady())return;
-  const now=new Date(),day=now.toISOString().slice(0,10);
-  if(now.getUTCHours()<config.xDailyReportHourUtc||state.lastXDailyReportDay===day)return;
-  if(isLive){const snap=await walletSnapshot();const stats=tradeStatsLive(state);const result=await postToX(dailyPost({mode:'LIVE',cash:snap.solValueUsd,walletLabel:'SOL value',realizedPnl:state.realizedPnl,dailyPnl:state.dailyPnl,...stats}));if(result.ok){state.lastXDailyReportDay=day;persist()}}
-  else{const stats=tradeStats(state);const result=await postToX(dailyPost({mode:'PAPER',cash:state.cash,realizedPnl:state.realizedPnl,dailyPnl:state.dailyPnl,...stats}));if(result.ok){state.lastXDailyReportDay=day;persist()}}
+const persist=()=>{isLive?saveLiveState(state):saveState(state);saveAnalytics(analytics)};process.on('SIGTERM',()=>{persist();server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),5000).unref()});process.on('SIGINT',()=>{persist();server.close(()=>process.exit(0));setTimeout(()=>process.exit(0),5000).unref()});
+async function refreshMoonBagMarks(){
+  if(!isLive||!Array.isArray(state.moonBags)||!state.moonBags.length)return;
+  for(const m of state.moonBags.slice(0,25)){
+    try{const pair=await refreshPair(m.pairAddress);if(pair?.priceUsd>0){m.lastPrice=pair.priceUsd;m.lastUpdatedAt=new Date().toISOString()}}catch{}
+  }
 }
+async function maybeIdleX(){
+  if(!xReady()||!config.xIdlePostingEnabled)return;
+  const now=Date.now(),hoursMs=Math.max(0.25,config.xIdlePostHours)*3600000;
+  const lastTradeMs=state.trades?.length?Math.max(...state.trades.map(t=>Date.parse(t.at)||0)):0;
+  const activityAnchor=Math.max(processStartedAt,lastTradeMs);
+  const lastIdleMs=Date.parse(state.lastXIdlePostAt||0)||0;
+  if(now-activityAnchor<hoursMs||now-lastIdleMs<hoursMs)return;
+  // Only call the bot 'working' if a recent scan has actually completed.
+  if(!lastScanAt||now-Date.parse(lastScanAt)>Math.max(180000,config.pollSeconds*4000))return;
+  let cash;try{cash=isLive?(await walletEquitySnapshot(state)).totalWalletUsd:equityUsd(state)}catch{return}
+  const text=state.position?holdingPost({cash,symbol:state.position.symbol,hours:config.xIdlePostHours}):idlePost({cash,hours:config.xIdlePostHours,scans});
+  const result=await postToX(text);if(result.ok){state.lastXIdlePostAt=new Date().toISOString();persist()}
+}
+async function maybeDailyX(){if(!xReady())return;const now=new Date(),day=now.toISOString().slice(0,10);if(now.getUTCHours()<config.xDailyReportHourUtc||state.lastXDailyReportDay===day)return;if(isLive){const snap=await walletEquitySnapshot(state);const stats=tradeStatsLive(state);const result=await postToX(dailyPost({mode:'LIVE',cash:snap.totalWalletUsd,realizedPnl:state.realizedPnl,dailyPnl:state.dailyPnl,...stats}));if(result.ok){state.lastXDailyReportDay=day;persist()}}else{const stats=tradeStats(state);const result=await postToX(dailyPost({mode:'PAPER',cash:state.cash,realizedPnl:state.realizedPnl,dailyPnl:state.dailyPnl,...stats}));if(result.ok){state.lastXDailyReportDay=day;persist()}}}
+if(isLive){lastWallet=await assertLiveFunding();await alert(`🐱 Broke Cat V9.2 STARTED | 🔴 LIVE MONEY | wallet ${walletAddress()} | SOL ${lastWallet.sol.toFixed(6)} (~$${lastWallet.solValueUsd.toFixed(2)}) | sizing ${config.positionSizingMode} | min score ${config.minScore} | X ${xReady()?'ON':'OFF'} | X intel ${intelStatus().enabled?'ON':'OFF'}`)}else await alert(`🐱 Broke Cat V9.2 started | PAPER MODE | bankroll $${state.cash.toFixed(2)} | min score ${config.minScore} | X ${xReady()?'ON':'OFF'} | X intel ${intelStatus().enabled?'ON':'OFF'}`);
 
-if(isLive){lastWallet=await assertLiveFunding();await alert(`🐱 Broke Cat Bot V8.1 STARTED | 🔴 LIVE MONEY | wallet ${walletAddress()} | SOL ${lastWallet.sol.toFixed(6)} (~$${lastWallet.solValueUsd.toFixed(2)}) | max trade ~$${config.livePositionUsd.toFixed(2)} | SOL reserve ${config.minSolReserve} | daily stop -$${config.maxDailyLoss.toFixed(2)}`)}
-else await alert(`🐱 Broke Cat Bot V8.1 started | PAPER MODE | bankroll $${state.cash.toFixed(2)} | min score ${config.minScore} | on-chain risk ${config.heliusApiKey?'ON':'OFF'} | X ${xReady()?'ON':'OFF'}`);
-
-do{
-  try{
-    lastError=null;
-    if(state.position){
-      const p=await refreshPair(state.position.pairAddress);
-      if(p){
-        if(isLive){const reason=exitReason(state,p.priceUsd);if(reason){const closed=await closeLive(state,reason);await alert(`🐱 ${closed.message}`);const snap=await walletSnapshot();await postToX(sellPost({mode:'LIVE',symbol:closed.symbol,reason,pnlUsd:closed.pnlUsd,cash:snap.solValueUsd,walletLabel:'SOL value'}))}}
-        else{const before={...state.position};const msg=updatePaper(state,p.priceUsd);if(msg){await alert(`🐱 ${msg}`);const lastSell=[...state.trades].reverse().find(t=>t.type==='SELL');if(lastSell)await postToX(sellPost({mode:'PAPER',symbol:before.symbol,reason:lastSell.reason,pnlUsd:lastSell.pnlUsd,cash:state.cash}))}}
-      }
-    }
-    if(!state.position&&state.dailyPnl>-config.maxDailyLoss){
-      const candidates=await discoverCandidates();scans++;lastScanAt=new Date().toISOString();console.log(`Scanned ${candidates.length} candidates`);
-      for(const c of candidates){
-        const last=seen.get(c.tokenAddress)||0;if(Date.now()-last<600000)continue;seen.set(c.tokenAddress,Date.now());
-        const s=await scoreCandidate(c),gate=entryAllowed(s);
-        if(s.score>=60){const r=s.risk;await alert(`🐱 ${s.symbol} ${s.score}/100 | MC $${s.marketCap.toFixed(0)} | liq $${s.liquidityUsd.toFixed(0)} | 5m vol $${s.volume5m.toFixed(0)} | bundle ${String(r.bundleRisk).toUpperCase()}${Number.isFinite(r.estimatedLinkedSupplyPct)?` (${r.estimatedLinkedSupplyPct.toFixed(1)}% est linked)`:''} | holders ${String(r.holderRisk).toUpperCase()}${Number.isFinite(r.top10Pct)?` (top10 ${r.top10Pct.toFixed(1)}%)`:''} | dev ${String(r.devRisk).toUpperCase()} | ${gate.ok?'ENTRY OK':`NO TRADE: ${gate.why}`}`)}
-        if(gate.ok){
-          if(isLive){const opened=await openLive(state,s);await alert(`🐱 ${opened.message}`);const snap=await walletSnapshot();await postToX(buyPost({mode:'LIVE',symbol:s.symbol,sizeUsd:state.position.costUsd,score:s.score,marketCap:s.marketCap,risk:s.risk,cash:snap.solValueUsd,walletLabel:'SOL value'}))}
-          else{const msg=openPaper(state,s);await alert(`🐱 ${msg}`);if(state.position)await postToX(buyPost({mode:'PAPER',symbol:s.symbol,sizeUsd:state.position.sizeUsd,score:s.score,marketCap:s.marketCap,risk:s.risk,cash:state.cash}))}
-          break;
-        }
-      }
-    }
-    await maybeDailyX();persist();
-  }catch(err){lastError=err?.message||String(err);console.error(new Date().toISOString(),err);await alert(`🐱 Broke Cat error: ${lastError}`).catch(()=>{})}
-  if(!config.runOnce)await sleep(config.pollSeconds*1000);
-}while(!config.runOnce);
-server.close();
+do{try{
+  const runnerFeeds=await refreshRunnerFeeds();
+  lastError=null;
+  const radar=await scanPrelaunchRadar().catch(e=>{console.error('Prelaunch radar',e.message);return null});if(radar?.newAddresses?.length)await alert(`🐱 PRE-LAUNCH RADAR found ${radar.newAddresses.length} contract address(es). Priority queue updated.`);if(radar?.newHighHype?.length){for(const h of radar.newHighHype.slice(0,2)){console.log(`PRE-LAUNCH HYPE ${h.hype}/100 @${h.author}: ${h.text}`);await alert(`🐱 PRE-LAUNCH HYPE ${h.hype}/100 | @${h.author} | ${h.contractAddresses?.length?'CA detected':'waiting for CA'} | ${h.text.slice(0,120)}`)}}
+  if(state.position){const p=await refreshPair(state.position.pairAddress);if(p){if(isLive){const emergency=await emergencyRiskReason(state,p,analyzeRisk);if(emergency){const closed=await closeLive(state,emergency);const snap=await walletEquitySnapshot(state);await alert(`🐱 ${closed.message}`);await postToX(sellPost({mode:'LIVE',symbol:closed.symbol,reason:emergency,pnlUsd:closed.pnlUsd,cash:snap.totalWalletUsd}));}else{const action=positionAction(state,p.priceUsd);if(action?.type==='partial'){const took=await partialTakeProfit(state,action);const snap=await walletEquitySnapshot(state,p.priceUsd);await alert(`🐱 ${took.message} | Wallet est ~$${snap.totalWalletUsd.toFixed(2)}`);await postToX(partialPost({...took,cash:snap.totalWalletUsd}));}else if(action?.type==='full'){const closed=await closeLive(state,action.reason);const snap=await walletEquitySnapshot(state);await alert(`🐱 ${closed.message}`);await postToX(sellPost({mode:'LIVE',symbol:closed.symbol,reason:action.reason,pnlUsd:closed.pnlUsd,cash:snap.totalWalletUsd}));}}}else{const before={...state.position};const msg=updatePaper(state,p.priceUsd);if(msg){await alert(`🐱 ${msg}`);const lastSell=[...state.trades].reverse().find(t=>t.type==='SELL');if(lastSell)await postToX(sellPost({mode:'PAPER',symbol:before.symbol,reason:lastSell.reason,pnlUsd:lastSell.pnlUsd,cash:state.cash}))}}}}
+  if(!state.position&&state.dailyPnl>-config.maxDailyLoss){const candidates=await discoverCandidates([...priorityAddresses(),...config.watchTokenAddresses],runnerFeeds?.addresses||[]);scans++;analytics.scans++;lastScanAt=new Date().toISOString();console.log(`Scanned ${candidates.length} candidates | priority CA ${priorityAddresses().length} | runner-feed CA ${(runnerFeeds?.addresses||[]).length}`);
+    const fresh=candidates.filter(c=>{const last=seen.get(c.tokenAddress)||0;if(Date.now()-last<config.candidateSeenCooldownSeconds*1000)return false;seen.set(c.tokenAddress,Date.now());return true});const ranked=fresh.map(c=>({c,q:quickScore(c)})).sort((a,b)=>b.q-a.q);
+    for(let idx=0;idx<ranked.length;idx++){const{c,q}=ranked[idx];const hype=idx<config.viralShortlistPerScan?await tokenHype(c):{bonus:0,enabled:false};const cross=confirmationFor(c);const s=await scoreCandidate(c,hype,cross),gate=entryAllowed(s);noteCandidate(analytics,s,gate);if(s.score>=55||priorityAddresses().includes(s.tokenAddress)){const r=s.risk;await alert(`🐱 ${s.symbol} ${s.score}/100 | ${s.lane} | age ${Number.isFinite(s.ageMin)?s.ageMin.toFixed(1):'?'}m | MC $${s.marketCap.toFixed(0)} | liq $${s.liquidityUsd.toFixed(0)} | viral +${s.hype?.bonus||0} | cross ${s.crossPlatform?.count||0} (+${s.crossPlatform?.bonus||0}) | bundle ${String(r.bundleRisk).toUpperCase()}${Number.isFinite(r.estimatedLinkedSupplyPct)?` (${r.estimatedLinkedSupplyPct.toFixed(1)}% linked)`:''} | dev ${String(r.devRisk).toUpperCase()} | ${gate.ok?'ENTRY OK':`NO TRADE: ${gate.why}`}`)}if(gate.ok){if(isLive){const opened=await openLive(state,s);const snap=await walletEquitySnapshot(state,s.priceUsd);await alert(`🐱 ${opened.message}`);await postToX(buyPost({mode:'LIVE',symbol:s.symbol,sizeUsd:state.position.costUsd,score:s.score,marketCap:s.marketCap,risk:s.risk,cash:snap.totalWalletUsd,lane:s.lane,hype:s.hype,allocationPct:state.position.allocationPct,riskLevel:state.position.riskLevel}))}else{const msg=openPaper(state,s);await alert(`🐱 ${msg}`);if(state.position)await postToX(buyPost({mode:'PAPER',symbol:s.symbol,sizeUsd:state.position.sizeUsd,score:s.score,marketCap:s.marketCap,risk:s.risk,cash:state.cash,lane:s.lane,hype:s.hype}))}break}}
+    if(analytics.scans%config.analyticsEveryScans===0){analytics.lastReport=new Date().toISOString();const report=reportText(analytics);console.log(report);await alert(report)}
+  }
+  await refreshMoonBagMarks();await maybeIdleX();await maybeDailyX();persist();
+}catch(err){lastError=err?.message||String(err);console.error(new Date().toISOString(),err);await alert(`🐱 Broke Cat error: ${lastError}`).catch(()=>{})}if(!config.runOnce)await sleep(config.pollSeconds*1000)}while(!config.runOnce);server.close();

@@ -1,21 +1,19 @@
-import crypto from 'node:crypto';
-import { config } from './config.mjs';
-const enc=v=>encodeURIComponent(String(v)).replace(/[!'()*]/g,c=>`%${c.charCodeAt(0).toString(16).toUpperCase()}`);
-const enabled=()=>Boolean(config.xPostingEnabled&&config.xApiKey&&config.xApiSecret&&config.xAccessToken&&config.xAccessTokenSecret);
-function authHeader(method,url){
-  const oauth={oauth_consumer_key:config.xApiKey,oauth_nonce:crypto.randomBytes(18).toString('hex'),oauth_signature_method:'HMAC-SHA1',oauth_timestamp:String(Math.floor(Date.now()/1000)),oauth_token:config.xAccessToken,oauth_version:'1.0'};
-  const paramString=Object.entries(oauth).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${enc(k)}=${enc(v)}`).join('&');
-  const base=[method.toUpperCase(),enc(url),enc(paramString)].join('&');
-  const signingKey=`${enc(config.xApiSecret)}&${enc(config.xAccessTokenSecret)}`;
-  oauth.oauth_signature=crypto.createHmac('sha1',signingKey).update(base).digest('base64');
-  return 'OAuth '+Object.entries(oauth).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${enc(k)}="${enc(v)}"`).join(', ');
-}
+import crypto from 'node:crypto';import {config} from './config.mjs';
+const enc=v=>encodeURIComponent(String(v)).replace(/[!'()*]/g,c=>`%${c.charCodeAt(0).toString(16).toUpperCase()}`);const enabled=()=>Boolean(config.xPostingEnabled&&config.xApiKey&&config.xApiSecret&&config.xAccessToken&&config.xAccessTokenSecret);
+function authHeader(method,url){const oauth={oauth_consumer_key:config.xApiKey,oauth_nonce:crypto.randomBytes(18).toString('hex'),oauth_signature_method:'HMAC-SHA1',oauth_timestamp:String(Math.floor(Date.now()/1000)),oauth_token:config.xAccessToken,oauth_version:'1.0'};const paramString=Object.entries(oauth).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${enc(k)}=${enc(v)}`).join('&');const base=[method.toUpperCase(),enc(url),enc(paramString)].join('&');const signingKey=`${enc(config.xApiSecret)}&${enc(config.xAccessTokenSecret)}`;oauth.oauth_signature=crypto.createHmac('sha1',signingKey).update(base).digest('base64');return'OAuth '+Object.entries(oauth).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>`${enc(k)}="${enc(v)}"`).join(', ')}
 export function xReady(){return enabled()}
-export async function postToX(text){
-  if(!enabled())return {ok:false,skipped:true};
-  const url='https://api.x.com/2/tweets';
-  try{const res=await fetch(url,{method:'POST',headers:{authorization:authHeader('POST',url),'content-type':'application/json'},body:JSON.stringify({text:String(text).slice(0,280)})});const raw=await res.text();let data;try{data=raw?JSON.parse(raw):{}}catch{data={raw}}if(!res.ok){console.error('X post failed',res.status,data);return {ok:false,status:res.status,data}}return {ok:true,data}}catch(error){console.error('X post error',error);return {ok:false,error:String(error?.message||error)}}
-}
-export function buyPost({mode='PAPER',symbol,sizeUsd,score,marketCap,risk,cash,walletLabel='Balance'}){const bundle=Number.isFinite(risk?.estimatedLinkedSupplyPct)?`${risk.estimatedLinkedSupplyPct.toFixed(1)}% est. linked`:String(risk?.bundleRisk||'unknown');return `🐱 BROKE CAT ${mode} BUY\n$${symbol} | ~$${sizeUsd.toFixed(2)}\nScore ${score}/100 | MC $${Math.round(marketCap).toLocaleString()}\nBundle ${bundle}\n${walletLabel} ~$${cash.toFixed(2)}\n\nAutomated experiment. High risk.`}
-export function sellPost({mode='PAPER',symbol,reason,pnlUsd,cash,walletLabel='Balance'}){const sign=pnlUsd>=0?'+':'';return `🐱 BROKE CAT ${mode} EXIT\n$${symbol} | ${reason}\nP&L ${sign}$${pnlUsd.toFixed(2)}\n${walletLabel} ~$${cash.toFixed(2)}\n\nAutomated experiment. High risk.`}
-export function dailyPost({mode='PAPER',cash,realizedPnl,dailyPnl,wins,losses,totalTrades,walletLabel='Balance'}){const t=realizedPnl>=0?'+':'',d=dailyPnl>=0?'+':'';return `🐱 BROKE CAT ${mode} DAILY\n${walletLabel} ~$${cash.toFixed(2)}\nTotal P&L ${t}$${realizedPnl.toFixed(2)} | Today ${d}$${dailyPnl.toFixed(2)}\nTrades ${totalTrades} | W ${wins} / L ${losses}\n\nAutomated experiment. High risk.`}
+export async function postToX(text){if(!enabled())return{ok:false,skipped:true};const url='https://api.x.com/2/tweets';try{const res=await fetch(url,{method:'POST',headers:{authorization:authHeader('POST',url),'content-type':'application/json'},body:JSON.stringify({text:String(text).slice(0,280)})});const raw=await res.text();let data;try{data=raw?JSON.parse(raw):{}}catch{data={raw}}if(!res.ok){console.error('X post failed',res.status,data);return{ok:false,status:res.status,data}}return{ok:true,data}}catch(error){console.error('X post error',error);return{ok:false,error:String(error?.message||error)}}}
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const entryJokes=['Clocked in. Let’s see what accounting says. ☕','Broke Cat has entered the conference room.','Another perfectly normal day at the office.','Management approved a tiny amount of chaos.'];
+const winJokes=['Just another day at the office. 🐱☕','Clocked in. Bag secured.','The intern finally did something useful.','Another spreadsheet miracle.','Lunch money secured.'];
+const lossJokes=['That meeting could’ve been an email.','HR would like a word.','Back to the spreadsheet.','Performance review pending.'];
+const moonJokes=['Moon bag filed under long-term projects. 🌙','Keeping a little in the company retirement plan.','The moon bag stays on payroll.'];
+export function buyPost({mode='PAPER',symbol,sizeUsd,score,marketCap,risk,cash,lane='Opportunity',hype,allocationPct,riskLevel}){const bundle=Number.isFinite(risk?.estimatedLinkedSupplyPct)?`${risk.estimatedLinkedSupplyPct.toFixed(1)}% linked`:String(risk?.bundleRisk||'unknown');return`🐱 BROKE CAT ${mode} BUY\n$${symbol} | ${lane} | ~$${sizeUsd.toFixed(2)}\nScore ${score}/100 | MC $${Math.round(marketCap).toLocaleString()}\nBundle ${bundle}${hype?.bonus?` | Viral +${hype.bonus}`:''}${Number.isFinite(allocationPct)?`\nAllocation ${allocationPct.toFixed(1)}% | Risk ${riskLevel||'?'}`:''}\nWallet ~$${cash.toFixed(2)}\n\n${pick(entryJokes)}`}
+export function partialPost({symbol,reason,pnlUsd,cash,sellPct,remainingPct}){return`🐱 BROKE CAT TOOK PROFIT\n$${symbol} | ${reason}\nSold ${sellPct}% | Realized ${pnlUsd>=0?'+':''}$${pnlUsd.toFixed(2)}\nRemaining ${remainingPct.toFixed(0)}% | Wallet ~$${cash.toFixed(2)}\n\n${remainingPct<=30?pick(moonJokes):pick(winJokes)}`}
+export function sellPost({mode='PAPER',symbol,reason,pnlUsd,cash,moonBag=false}){return`🐱 BROKE CAT ${mode} EXIT\n$${symbol} | ${reason}\nP&L ${pnlUsd>=0?'+':''}$${pnlUsd.toFixed(2)}\nWallet after trade ~$${cash.toFixed(2)}${moonBag?'\nMoon bag remains. 🌙':''}\n\n${pnlUsd>=0?pick(winJokes):pick(lossJokes)}`}
+export function dailyPost({mode='PAPER',cash,realizedPnl,dailyPnl,wins,losses,totalTrades}){return`🐱 BROKE CAT ${mode} DAILY\nWallet ~$${cash.toFixed(2)}\nTotal P&L ${realizedPnl>=0?'+':''}$${realizedPnl.toFixed(2)} | Today ${dailyPnl>=0?'+':''}$${dailyPnl.toFixed(2)}\nExits ${totalTrades} | W ${wins} / L ${losses}\n\nJust another day at the office. ☕`}
+
+const idleJokes=['Cat still working — just nothing worth the risk right now. 🐱☕','Still clocked in. The risk desk said wait.','No clean setup yet. Back to staring at charts.','Market is offering meetings that should have been emails.'];
+const holdingJokes=['Still in the trade. Letting the cat work. 🐱','Position still on the desk. No buttons to press yet.','Management says patience is technically a strategy.'];
+export function idlePost({cash,hours=2,scans=null}){return`🐱 BROKE CAT STATUS\nStill scanning. No trade in ${hours}h — nothing worth the risk right now.\nWallet ~$${cash.toFixed(2)}${Number.isFinite(scans)?` | Scans ${scans}`:''}\n\n${pick(idleJokes)}`}
+export function holdingPost({cash,symbol,hours=2}){return`🐱 BROKE CAT STATUS\nStill holding $${symbol}. No trade action in ${hours}h.\nWallet est ~$${cash.toFixed(2)}\n\n${pick(holdingJokes)}`}
