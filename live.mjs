@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import bs58 from 'bs58';
 import {Keypair,VersionedTransaction} from '@solana/web3.js';
 import {config,SOL_MINT,liveConfigStatus} from './config.mjs';
@@ -35,7 +36,30 @@ export function parseKey(raw){
     if(bytes.length===32||bytes.length===64)return makeKeypair(bytes,'hex');
   }
 
-  // Standard/base64url. Trust Wallet exports can contain +, / and =.
+  // PEM PKCS#8 Ed25519 private key.
+  const fromPkcs8=(der,format)=>{
+    try{
+      const obj=crypto.createPrivateKey({key:Buffer.from(der),format:'der',type:'pkcs8'});
+      const jwk=obj.export({format:'jwk'});
+      if(jwk?.kty!=='OKP'||jwk?.crv!=='Ed25519'||!jwk?.d)throw new Error('not an Ed25519 PKCS#8 key');
+      const seed=Buffer.from(jwk.d.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-jwk.d.length%4)%4),'base64');
+      if(seed.length!==32)throw new Error(`PKCS#8 Ed25519 seed is ${seed.length} bytes, expected 32`);
+      return makeKeypair(seed,format);
+    }catch{return null}
+  };
+  if(value.includes('BEGIN PRIVATE KEY')){
+    try{
+      const obj=crypto.createPrivateKey(value);
+      const jwk=obj.export({format:'jwk'});
+      if(jwk?.kty==='OKP'&&jwk?.crv==='Ed25519'&&jwk?.d){
+        const d=jwk.d; const seed=Buffer.from(d.replace(/-/g,'+').replace(/_/g,'/')+'='.repeat((4-d.length%4)%4),'base64');
+        return makeKeypair(seed,'pem-pkcs8');
+      }
+    }catch{}
+  }
+
+  // Standard/base64url. Trust Wallet exports may contain +, / and =.
+  // Besides raw 32/64-byte keys, accept an Ed25519 PKCS#8 DER container.
   const looksBase64=/^[A-Za-z0-9+/_-]+={0,2}$/.test(value) && (/[+/=_-]/.test(value) || value.length%4===0);
   if(looksBase64){
     try{
@@ -43,6 +67,9 @@ export function parseKey(raw){
       const padded=normalized+'='.repeat((4-normalized.length%4)%4);
       const bytes=Uint8Array.from(Buffer.from(padded,'base64'));
       if(bytes.length===32||bytes.length===64)return makeKeypair(bytes,'base64');
+      const pkcs8=fromPkcs8(bytes,'base64-pkcs8');
+      if(pkcs8)return pkcs8;
+      throw new Error(`base64 decoded to ${bytes.length} bytes, not a raw 32/64-byte key or Ed25519 PKCS#8 container`);
     }catch{}
   }
 
@@ -51,7 +78,7 @@ export function parseKey(raw){
     const bytes=bs58.decode(value);
     return makeKeypair(bytes,'base58');
   }catch(err){
-    throw new Error(`Unsupported Solana private-key format. V8.2 accepts base58, base64, hex, or a JSON byte array. ${err?.message||''}`.trim());
+    throw new Error(`Unsupported Solana private-key format. V8.3 accepts base58, raw/base64url, hex, JSON byte arrays, and Ed25519 PKCS#8/PEM keys. ${err?.message||''}`.trim());
   }
 }
 function wallet(){

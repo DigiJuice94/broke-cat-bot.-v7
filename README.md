@@ -1,4 +1,4 @@
-# 🐱 Broke Cat Bot V8.2 — SOL-Native Live Trading
+# 🐱 Broke Cat Bot V8.3 — SOL-Native Live Trading
 
 Broke Cat V8 is the SOL-native version of the Railway bot. It keeps the V7 scanner, Helius launch/bundle-risk analysis, holder/dev filters, one-position limit, $1 daily realized-loss kill switch, Jupiter execution, X posts, Telegram alerts, persistent state, and `/health` monitoring — but **live entries now spend SOL instead of requiring USDC**.
 
@@ -115,9 +115,9 @@ npm start
 Add `EXPECTED_WALLET_ADDRESS` to Railway with the public Solana address you intend Broke Cat to trade from. V8.1 derives the public address from `BS58_PRIVATE_KEY`, blocks live trading if it does not match, and cross-checks native SOL balance using both Helius and Solana public RPC. Startup logs show both readings and which source is used. Never place the private key in GitHub.
 
 
-## V8.2 Trust Wallet private-key format fix
+## V8.3 Trust Wallet private-key format fix
 
-`BS58_PRIVATE_KEY` keeps the same Railway variable name for backward compatibility, but V8.2 now auto-detects common Solana private-key encodings:
+`BS58_PRIVATE_KEY` keeps the same Railway variable name for backward compatibility, but V8.3 now auto-detects common Solana private-key encodings:
 
 - base58
 - base64 / base64url (including `+`, `/`, `_`, `-`, and padding)
@@ -125,3 +125,7 @@ Add `EXPECTED_WALLET_ADDRESS` to Railway with the public Solana address you inte
 - JSON byte arrays such as `[12,34,...]`
 
 After decoding, Broke Cat still derives the public address and compares it with `EXPECTED_WALLET_ADDRESS`. If the addresses do not match, live trading is blocked. Do not paste the key into chat or GitHub; keep it only in Railway Variables.
+
+
+## V8.3 key-import fix
+Accepts Ed25519 PKCS#8 DER/PEM private-key exports in addition to raw base58/base64/hex/JSON formats. The derived public address is still checked against `EXPECTED_WALLET_ADDRESS` before live trading is armed.
