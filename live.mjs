@@ -163,6 +163,34 @@ async function jupiterSwap(inputMint,outputMint,amountRaw){
   if(result.status!=='Success')throw new Error(`Jupiter swap failed code ${result.code}: ${result.error||'unknown error'}${result.signature?` tx ${result.signature}`:''}`);
   return {order,result,inputRaw:String(result.inputAmountResult||amountRaw),outputRaw:String(result.outputAmountResult||order.outAmount),signature:result.signature};
 }
+
+async function jupiterExitQuote(tokenMint,amountRaw){
+  const signer=wallet();
+  const params=new URLSearchParams({inputMint:tokenMint,outputMint:SOL_MINT,amount:String(amountRaw),taker:signer.publicKey.toBase58()});
+  const r=await fetch(`${BASE}/order?${params}`,{headers:{'x-api-key':config.jupiterApiKey}});
+  if(!r.ok)throw new Error(`Jupiter exit check ${r.status}: ${await r.text()}`);
+  const order=await r.json();
+  const outRaw=Number(order?.outAmount||0);
+  if(!Number.isFinite(outRaw)||outRaw<=0)throw new Error(order?.errorMessage||order?.errorCode||'no executable output');
+  return {outRaw,order};
+}
+
+export function classifyLiquidityGuard({dropPct,confirmations,exitEfficiencyPct,retPct,buySellRatio,currentLiquidityUsd}){
+  const warn=config.liquidityWarningDropPct,danger=config.liquidityDangerDropPct,critical=config.liquidityCriticalDropPct;
+  if(dropPct<warn)return{level:'normal',exit:false,reason:null};
+  if(dropPct<danger)return{level:'warning',exit:false,reason:null};
+  const sellPressure=Number.isFinite(buySellRatio)&&buySellRatio<config.liquidityMinBuySellRatio;
+  const priceWeak=retPct<=config.liquidityConfirmPriceDropPct;
+  const quoteWeak=Number.isFinite(exitEfficiencyPct)&&exitEfficiencyPct<config.liquidityMinExitEfficiencyPct;
+  const quoteBad=Number.isFinite(exitEfficiencyPct)&&exitEfficiencyPct<config.liquidityCriticalExitEfficiencyPct;
+  const veryThin=currentLiquidityUsd>0&&currentLiquidityUsd<config.minLiquidity;
+  if(dropPct<critical){
+    const confirmed=confirmations>=config.liquidityConfirmationsRequired;
+    return{level:'danger',exit:confirmed&&(quoteWeak||priceWeak||sellPressure),reason:confirmed&&(quoteWeak||priceWeak||sellPressure)?`CONFIRMED LIQUIDITY DANGER -${dropPct.toFixed(0)}%`:null};
+  }
+  const confirmed=confirmations>=Math.max(2,config.liquidityCriticalConfirmationsRequired);
+  return{level:'critical',exit:confirmed&&(quoteBad||priceWeak||sellPressure||veryThin),reason:confirmed&&(quoteBad||priceWeak||sellPressure||veryThin)?`CONFIRMED LIQUIDITY CRITICAL -${dropPct.toFixed(0)}%`:null};
+}
 function dynamicAllocationDecision(candidate){
   // Dynamic sizing deliberately separates eligibility from allocation. Hard safety gates
   // still decide whether a token may be traded; this only decides how much of the wallet
@@ -219,7 +247,7 @@ export async function openLive(s,c){
   const swap=await jupiterSwap(SOL_MINT,c.tokenAddress,amountRaw);
   const actualCostSol=Number(swap.inputRaw)/LAMPORTS_PER_SOL,actualCostUsd=actualCostSol*snap.solUsd;
   const original=String(swap.outputRaw);
-  s.position={pairAddress:c.pairAddress,tokenAddress:c.tokenAddress,symbol:c.symbol,lane:c.lane,entryPrice:c.priceUsd,entryLiquidityUsd:c.liquidityUsd,highPrice:c.priceUsd,lastPrice:c.priceUsd,costSol:actualCostSol,costUsd:actualCostUsd,entrySolUsd:snap.solUsd,originalTokenAmountRaw:original,tokenAmountRaw:original,openedAt:new Date().toISOString(),buySignature:swap.signature,score:c.score,hype:c.hype||{},allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED',tiersDone:[],realizedFromPositionUsd:0,lastRiskCheckAt:0};
+  s.position={pairAddress:c.pairAddress,tokenAddress:c.tokenAddress,symbol:c.symbol,lane:c.lane,entryPrice:c.priceUsd,entryLiquidityUsd:c.liquidityUsd,highPrice:c.priceUsd,lastPrice:c.priceUsd,costSol:actualCostSol,costUsd:actualCostUsd,entrySolUsd:snap.solUsd,originalTokenAmountRaw:original,tokenAmountRaw:original,openedAt:new Date().toISOString(),buySignature:swap.signature,score:c.score,hype:c.hype||{},allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED',tiersDone:[],realizedFromPositionUsd:0,lastRiskCheckAt:0,lastLiquidityCheckAt:0,liquidityGuard:{confirmations:0,lastDropPct:0,lastLevel:'normal',lastCheckedAt:null,lastExitEfficiencyPct:null,bestPairAddress:c.pairAddress}};
   s.trades.push({type:'BUY',mode:'LIVE',symbol:c.symbol,lane:c.lane,tokenAddress:c.tokenAddress,costSol:actualCostSol,costUsd:actualCostUsd,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED',tokenAmountRaw:original,price:c.priceUsd,score:c.score,hype:c.hype||{},signature:swap.signature,at:new Date().toISOString()});
   saveLiveState(s);return{message:`LIVE BUY ~${actualCostSol.toFixed(6)} SOL (~$${actualCostUsd.toFixed(2)}) ${c.symbol} | ${c.lane}${sizing.decision?.pct?` | ${sizing.decision.pct.toFixed(1)}% wallet | risk ${sizing.decision.riskLevel}`:''} | tx ${swap.signature}`,signature:swap.signature,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED'};
 }
@@ -252,10 +280,62 @@ export async function partialTakeProfit(s,action){
   return{message:`LIVE TAKE PROFIT ${p.symbol}: ${action.reason} | sold ${action.sellPct}% original | received ${receivedSol.toFixed(6)} SOL (~$${receivedUsd.toFixed(2)}) | realized ${pnlUsd>=0?'+':''}$${pnlUsd.toFixed(2)}${moonBagDetached?' | moon bag detached 🌙':''}`,symbol:p.symbol,pnlUsd,receivedUsd,sellPct:action.sellPct,remainingPct,moonBagDetached,signature:swap.signature};
 }
 export async function emergencyRiskReason(s,pair,analyzeRiskFn){
-  const p=s.position;if(!p)return null;const now=Date.now();if(now-Number(p.lastRiskCheckAt||0)<config.positionRiskRecheckSeconds*1000)return null;p.lastRiskCheckAt=now;
-  if(p.entryLiquidityUsd>0&&pair.liquidityUsd<p.entryLiquidityUsd*(1-config.emergencyLiquidityDropPct/100))return`LIQUIDITY COLLAPSE >${config.emergencyLiquidityDropPct}%`;
-  try{const risk=await analyzeRiskFn({...pair,tokenAddress:p.tokenAddress});if(risk.bundleRisk==='high')return'BUNDLE/LINKED-WALLET RISK TURNED HIGH';if(risk.devRisk==='high')return'DEV/MINT RISK TURNED HIGH';if(risk.holderRisk==='high')return'HOLDER CONCENTRATION TURNED HIGH'}catch{}
-  saveLiveState(s);return null;
+  const p=s.position;if(!p)return null;
+  const now=Date.now();
+  const best=pair;
+
+  // index.mjs resolves the token's current highest-liquidity pool every loop. If the
+  // best pool changes, follow it instead of treating the old pool as a rug by itself.
+  if(best?.pairAddress&&best.pairAddress!==p.pairAddress){
+    console.log(`🐱 LIQUIDITY MIGRATION ${p.symbol} | ${p.pairAddress} -> ${best.pairAddress} | best liq $${Number(best.liquidityUsd||0).toFixed(0)}`);
+    p.pairAddress=best.pairAddress;
+  }
+  if(best?.priceUsd>0){p.lastPrice=best.priceUsd;p.highPrice=Math.max(Number(p.highPrice)||p.entryPrice,best.priceUsd)}
+
+  // Expensive on-chain risk is rechecked on its own slower clock. These hard safety
+  // changes stay independent from the new liquidity confirmation logic.
+  if(now-Number(p.lastRiskCheckAt||0)>=config.positionRiskRecheckSeconds*1000){
+    p.lastRiskCheckAt=now;
+    try{
+      const risk=await analyzeRiskFn({...best,tokenAddress:p.tokenAddress});
+      if(risk.bundleRisk==='high')return'BUNDLE/LINKED-WALLET RISK TURNED HIGH';
+      if(risk.devRisk==='high')return'DEV/MINT RISK TURNED HIGH';
+      if(risk.holderRisk==='high')return'HOLDER CONCENTRATION TURNED HIGH';
+    }catch{}
+  }
+
+  // Liquidity is checked much faster than the full Helius risk scan so a true rug is
+  // not forced to wait several minutes for confirmation.
+  if(now-Number(p.lastLiquidityCheckAt||0)<config.liquidityRecheckSeconds*1000){saveLiveState(s);return null}
+  p.lastLiquidityCheckAt=now;
+  const entryLiq=Number(p.entryLiquidityUsd||0),currentLiq=Number(best?.liquidityUsd||0);
+  if(entryLiq<=0||currentLiq<=0){saveLiveState(s);return null}
+  const dropPct=Math.max(0,(1-currentLiq/entryLiq)*100);
+  p.liquidityGuard=p.liquidityGuard||{confirmations:0,lastDropPct:0,lastLevel:'normal'};
+  const g=p.liquidityGuard;
+  if(dropPct<config.liquidityWarningDropPct){g.confirmations=0;g.lastLevel='normal';g.lastDropPct=dropPct;g.lastCheckedAt=new Date().toISOString();saveLiveState(s);return null}
+  g.confirmations=Number(g.confirmations||0)+1;g.lastDropPct=dropPct;g.lastCheckedAt=new Date().toISOString();g.bestPairAddress=best?.pairAddress||p.pairAddress;
+
+  // Ask Jupiter what the entire remaining position could receive WITHOUT signing or
+  // executing. A healthy quote can veto a false liquidity panic.
+  let exitEfficiencyPct=NaN;
+  try{
+    const q=await jupiterExitQuote(p.tokenAddress,p.tokenAmountRaw);
+    const solUsd=await solUsdPrice();
+    const quotedUsd=(q.outRaw/LAMPORTS_PER_SOL)*solUsd;
+    const markedUsd=p.costUsd*rawRatio(p.tokenAmountRaw,p.originalTokenAmountRaw)*(Number(best?.priceUsd||p.lastPrice||p.entryPrice)/p.entryPrice);
+    if(markedUsd>0)exitEfficiencyPct=quotedUsd/markedUsd*100;
+    g.lastExitEfficiencyPct=Number.isFinite(exitEfficiencyPct)?exitEfficiencyPct:null;
+    g.lastQuoteError=null;
+  }catch(err){g.lastQuoteError=String(err?.message||err).slice(0,180)}
+
+  const buys=Number(best?.buys5m||0),sells=Number(best?.sells5m||0);const buySellRatio=sells>0?buys/sells:(buys>0?99:1);
+  const retPct=pctMove(p,Number(best?.priceUsd||p.lastPrice||p.entryPrice));
+  const decision=classifyLiquidityGuard({dropPct,confirmations:g.confirmations,exitEfficiencyPct,retPct,buySellRatio,currentLiquidityUsd:currentLiq});
+  g.lastLevel=decision.level;
+  console.log(`🐱 LIQUIDITY ${decision.level.toUpperCase()} ${p.symbol} | drop ${dropPct.toFixed(1)}% | best liq $${currentLiq.toFixed(0)} | checks ${g.confirmations} | exit efficiency ${Number.isFinite(exitEfficiencyPct)?exitEfficiencyPct.toFixed(1)+'%':'n/a'} | return ${retPct.toFixed(1)}% | buys/sells ${buys}/${sells} | ${decision.exit?'EXIT':'HOLD'}`);
+  saveLiveState(s);
+  return decision.exit?decision.reason:null;
 }
 export async function closeLive(s,reason){
   const p=s.position;if(!p)throw new Error('No live position');const remaining=BigInt(p.tokenAmountRaw);if(remaining<=0n)throw new Error('No live tokens remaining');const estimatedUsd=p.costUsd*rawRatio(remaining,p.originalTokenAmountRaw)*(p.lastPrice/p.entryPrice);const swap=await sellRawInChunks(p,remaining.toString(),estimatedUsd);const receivedSol=Number(swap.outputRaw)/LAMPORTS_PER_SOL,currentSolUsd=await solUsdPrice(),receivedUsd=receivedSol*currentSolUsd;const remainingCostBasis=p.costUsd*rawRatio(remaining,p.originalTokenAmountRaw);const pnlUsd=receivedUsd-remainingCostBasis,pnlSol=receivedSol-p.costSol*rawRatio(remaining,p.originalTokenAmountRaw);

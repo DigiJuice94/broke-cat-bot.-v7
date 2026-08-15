@@ -1,6 +1,6 @@
-# Broke Cat Bot V9.3 🐱
+# Broke Cat Bot V9.4 🐱
 
-V9.3 keeps the V9 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
+V9.4 keeps the V9 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
 
 ## What changed
 
@@ -37,7 +37,7 @@ The radar never buys a project merely because it is viral. A discovered CA is mo
 
 
 ### 3) Multilingual ticker + hype intelligence
-V9.3 adds multilingual discovery so Broke Cat does not depend on English-only token names or launch posts.
+V9.4 adds multilingual discovery so Broke Cat does not depend on English-only token names or launch posts.
 
 - Original Unicode token names and symbols are preserved and searched directly on X.
 - Contract-address search remains the strongest language-independent identity signal.
@@ -72,12 +72,12 @@ Default live exit plan:
 - +400%: sell 20%
 - approximately 25% remains as the moon bag
 
-A hard emergency stop defaults to -35%. Emergency on-chain/liquidity deterioration can still close the remaining active position because safety outranks the moon bag. After the final +400% tier, the remaining ~25% is detached into a tracked moon-bag holding so it no longer blocks Broke Cat from scanning/opening the next active trade; V9.3 marks those holdings for wallet-equity/X totals.
+A hard emergency stop defaults to -35%. Emergency on-chain/liquidity deterioration can still close the remaining active position because safety outranks the moon bag. After the final +400% tier, the remaining ~25% is detached into a tracked moon-bag holding so it no longer blocks Broke Cat from scanning/opening the next active trade; V9.4 marks those holdings for wallet-equity/X totals.
 
 Larger partial exits can be split into smaller Jupiter swaps using `MAX_EXIT_CHUNK_USD`.
 
 ### 6) Dynamic risk sizing — hard max 30%
-V9.3 defaults to `POSITION_SIZING_MODE=dynamic`. Every approved entry is sized from the **current wallet value**, so the bot automatically has more deployable capital as the wallet grows without a fixed-dollar ceiling.
+V9.4 defaults to `POSITION_SIZING_MODE=dynamic`. Every approved entry is sized from the **current wallet value**, so the bot automatically has more deployable capital as the wallet grows without a fixed-dollar ceiling.
 
 Default allocation bands begin around 5% for a barely-qualified setup and can rise toward 30% for the strongest low-risk setup. Allocation is reduced/capped by medium bundle risk, medium holder risk, linked-wallet supply, thin liquidity, and the configured position-to-liquidity limit.
 
@@ -114,7 +114,7 @@ Keep your existing secrets/config:
 
 Never put private keys or API secrets in GitHub.
 
-## Recommended V9.3 variables for the current test
+## Recommended V9.4 variables for the current test
 ```env
 TRADING_MODE=live
 LIVE_TRADING_ACK=I_UNDERSTAND_REAL_FUNDS_ARE_AT_RISK
@@ -156,9 +156,9 @@ X_IDLE_POST_HOURS=2
 Broke Cat is experimental trading software. Meme coins can lose most or all of their value extremely quickly, and a configured stop is not a guaranteed execution price. Keep the bot wallet isolated from long-term funds and increase capital only after reviewing actual fills, slippage, drawdowns and trade history.
 
 
-## V9.3 Cross-Platform Runner Engine
+## V9.4 Cross-Platform Runner Engine
 
-V9.3 adds independent discovery/confirmation feeds without allowing social hype to override the existing bundle/dev/holder/liquidity hard gates.
+V9.4 adds independent discovery/confirmation feeds without allowing social hype to override the existing bundle/dev/holder/liquidity hard gates.
 
 - **Birdeye:** fresh Solana listings, including meme-platform aware discovery when your Birdeye key supports it.
 - **Pump.fun / Bitquery:** optional recent Pump.fun creation feed using a Bitquery OAuth API token.
@@ -188,3 +188,28 @@ TELEGRAM_INTEL_KEYWORDS=launch,ca,contract,live,pump,solana
 ```
 
 If a key is missing, that feed reports itself disabled and the bot continues with the remaining feeds.
+
+
+## V9.4 — Liquidity Intelligence Engine
+V9.4 no longer panic-sells because one entry pool reports a large liquidity drop. While a live position is open it re-resolves the token's highest-liquidity Solana pool, detects pool migration, requires repeated bad readings, and asks Jupiter for a quote-only full-position exit estimate before a liquidity warning can become an emergency sell.
+
+Default guard bands:
+- 50–70% liquidity drop: warning / hold
+- 70–85% drop: danger; needs 3 readings plus weak sellability, weak price, or sell pressure
+- 85%+ drop: critical; needs 2 readings plus an additional confirmation
+
+Hard dev, linked-wallet/bundle, and holder-risk changes remain independent emergency exits. `HARD_STOP_PCT` is also unchanged.
+
+Optional Railway overrides (the defaults are already compiled in):
+```env
+LIQUIDITY_RECHECK_SECONDS=30
+LIQUIDITY_WARNING_DROP_PCT=50
+LIQUIDITY_DANGER_DROP_PCT=70
+LIQUIDITY_CRITICAL_DROP_PCT=85
+LIQUIDITY_CONFIRMATIONS_REQUIRED=3
+LIQUIDITY_CRITICAL_CONFIRMATIONS_REQUIRED=2
+LIQUIDITY_MIN_EXIT_EFFICIENCY_PCT=75
+LIQUIDITY_CRITICAL_EXIT_EFFICIENCY_PCT=60
+LIQUIDITY_CONFIRM_PRICE_DROP_PCT=-15
+LIQUIDITY_MIN_BUY_SELL_RATIO=0.6
+```

@@ -16,7 +16,8 @@ export const config={
     {gain:n('TP3_GAIN_PCT',200),sell:n('TP3_SELL_PCT',20)},
     {gain:n('TP4_GAIN_PCT',400),sell:n('TP4_SELL_PCT',20)}
   ], moonBagPct:n('MOON_BAG_PCT',25), maxExitChunkUsd:n('MAX_EXIT_CHUNK_USD',100),
-  emergencyLiquidityDropPct:n('EMERGENCY_LIQUIDITY_DROP_PCT',55), positionRiskRecheckSeconds:n('POSITION_RISK_RECHECK_SECONDS',120),
+  positionRiskRecheckSeconds:n('POSITION_RISK_RECHECK_SECONDS',120),liquidityRecheckSeconds:n('LIQUIDITY_RECHECK_SECONDS',30),
+  liquidityWarningDropPct:n('LIQUIDITY_WARNING_DROP_PCT',50),liquidityDangerDropPct:n('LIQUIDITY_DANGER_DROP_PCT',70),liquidityCriticalDropPct:n('LIQUIDITY_CRITICAL_DROP_PCT',85),liquidityConfirmationsRequired:n('LIQUIDITY_CONFIRMATIONS_REQUIRED',3),liquidityCriticalConfirmationsRequired:n('LIQUIDITY_CRITICAL_CONFIRMATIONS_REQUIRED',2),liquidityMinExitEfficiencyPct:n('LIQUIDITY_MIN_EXIT_EFFICIENCY_PCT',75),liquidityCriticalExitEfficiencyPct:n('LIQUIDITY_CRITICAL_EXIT_EFFICIENCY_PCT',60),liquidityConfirmPriceDropPct:n('LIQUIDITY_CONFIRM_PRICE_DROP_PCT',-15),liquidityMinBuySellRatio:n('LIQUIDITY_MIN_BUY_SELL_RATIO',0.6),
   maxTokenAgeMinutes:n('MAX_TOKEN_AGE_MINUTES',1440), minLiquidity:n('MIN_LIQUIDITY_USD',3000), min5mVolume:n('MIN_5M_VOLUME_USD',500), minMarketCap:n('MIN_MARKET_CAP_USD',3000), maxMarketCap:n('MAX_MARKET_CAP_USD',100000000),
   earlyMaxAgeMinutes:n('EARLY_MAX_AGE_MINUTES',30), earlyMaxMarketCap:n('EARLY_MAX_MARKET_CAP_USD',150000), momentumMinMarketCap:n('MOMENTUM_MIN_MARKET_CAP_USD',50000),
   heliusApiKey:s('HELIUS_API_KEY'), jupiterApiKey:s('JUPITER_API_KEY'), bs58PrivateKey:s('BS58_PRIVATE_KEY'), expectedWalletAddress:s('EXPECTED_WALLET_ADDRESS'),
