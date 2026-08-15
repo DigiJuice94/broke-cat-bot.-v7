@@ -1,8 +1,36 @@
-# Broke Cat Bot V9.4 🐱
+# Broke Cat Bot V9.5 🐱
 
-V9.4 keeps the V9 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
+V9.5 keeps the V9 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
 
 ## What changed
+
+
+## V9.5 Rapid Runner Watchlist
+A rejection is no longer automatically the end of the story for a newborn or near-passing coin.
+
+- Coins within 10 points of `MIN_SCORE` are placed on a rapid watchlist.
+- Very new coins (default <=10 minutes) rejected because liquidity is not ready or bundle/launch data is still `UNKNOWN` are also watched when they have at least a meaningful preliminary score.
+- Hot near-pass candidates can be rescored every 10 seconds; normal rapid-watch candidates default to 15 seconds.
+- Every revisit fetches fresh pool/market data and reruns the full risk + score calculation. Old scores are not reused.
+- Rapid-watch candidates bypass the normal `CANDIDATE_SEEN_COOLDOWN_SECONDS` while their scheduled recheck is due.
+- The bot logs score movement such as `RAPID WATCH CAT 81->84 (+3)` and immediately becomes entry-eligible if the fresh score/safety gates pass.
+- High bundle/dev/holder risk is never watchlisted as a reason to eventually "hope" it becomes safe; hard risk rejects remain hard rejects.
+- Candidates expire from rapid watch after the configured age/time window or sustained deterioration, preventing an endless API-call queue.
+
+Defaults require no Railway changes. Optional controls:
+```env
+RAPID_WATCH_ENABLED=true
+RAPID_WATCH_RECHECK_SECONDS=15
+RAPID_WATCH_HOT_RECHECK_SECONDS=10
+RAPID_WATCH_SLOW_RECHECK_SECONDS=30
+RAPID_WATCH_SCORE_MARGIN=10
+RAPID_WATCH_NEWBORN_MAX_AGE_MINUTES=10
+RAPID_WATCH_MAX_AGE_MINUTES=20
+RAPID_WATCH_MAX_MINUTES=15
+RAPID_WATCH_MAX_TOKENS=30
+RAPID_WATCH_MAX_DECLINES=3
+```
+
 
 ### 1) Four opportunity lanes
 - **Pre-Launch Priority** — X intelligence looks for upcoming Solana launches, high-engagement launch posts, watched project accounts, and posted contract addresses.
@@ -37,7 +65,7 @@ The radar never buys a project merely because it is viral. A discovered CA is mo
 
 
 ### 3) Multilingual ticker + hype intelligence
-V9.4 adds multilingual discovery so Broke Cat does not depend on English-only token names or launch posts.
+V9.5 adds multilingual discovery so Broke Cat does not depend on English-only token names or launch posts.
 
 - Original Unicode token names and symbols are preserved and searched directly on X.
 - Contract-address search remains the strongest language-independent identity signal.
@@ -72,12 +100,12 @@ Default live exit plan:
 - +400%: sell 20%
 - approximately 25% remains as the moon bag
 
-A hard emergency stop defaults to -35%. Emergency on-chain/liquidity deterioration can still close the remaining active position because safety outranks the moon bag. After the final +400% tier, the remaining ~25% is detached into a tracked moon-bag holding so it no longer blocks Broke Cat from scanning/opening the next active trade; V9.4 marks those holdings for wallet-equity/X totals.
+A hard emergency stop defaults to -35%. Emergency on-chain/liquidity deterioration can still close the remaining active position because safety outranks the moon bag. After the final +400% tier, the remaining ~25% is detached into a tracked moon-bag holding so it no longer blocks Broke Cat from scanning/opening the next active trade; V9.5 marks those holdings for wallet-equity/X totals.
 
 Larger partial exits can be split into smaller Jupiter swaps using `MAX_EXIT_CHUNK_USD`.
 
 ### 6) Dynamic risk sizing — hard max 30%
-V9.4 defaults to `POSITION_SIZING_MODE=dynamic`. Every approved entry is sized from the **current wallet value**, so the bot automatically has more deployable capital as the wallet grows without a fixed-dollar ceiling.
+V9.5 defaults to `POSITION_SIZING_MODE=dynamic`. Every approved entry is sized from the **current wallet value**, so the bot automatically has more deployable capital as the wallet grows without a fixed-dollar ceiling.
 
 Default allocation bands begin around 5% for a barely-qualified setup and can rise toward 30% for the strongest low-risk setup. Allocation is reduced/capped by medium bundle risk, medium holder risk, linked-wallet supply, thin liquidity, and the configured position-to-liquidity limit.
 
@@ -158,7 +186,7 @@ Broke Cat is experimental trading software. Meme coins can lose most or all of t
 
 ## V9.4 Cross-Platform Runner Engine
 
-V9.4 adds independent discovery/confirmation feeds without allowing social hype to override the existing bundle/dev/holder/liquidity hard gates.
+V9.5 adds independent discovery/confirmation feeds without allowing social hype to override the existing bundle/dev/holder/liquidity hard gates.
 
 - **Birdeye:** fresh Solana listings, including meme-platform aware discovery when your Birdeye key supports it.
 - **Pump.fun / Bitquery:** optional recent Pump.fun creation feed using a Bitquery OAuth API token.
