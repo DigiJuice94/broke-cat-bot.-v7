@@ -1,0 +1,71 @@
+BROKE CAT WEBSITE — CONNECT LIVE DATA
+
+Connect the existing Broke Cat website to the Broke Cat Railway public API.
+
+IMPORTANT:
+- Keep the current cream/tan design exactly as it is.
+- Do NOT redesign the website.
+- Do NOT expose private keys, trading strategy, active token names, stops, targets, hold times, scores for active positions, or moon-bag sizes.
+- Do NOT display mock/fake values once the API is connected.
+- If an API field is temporarily unavailable, display "—" rather than a fake number.
+
+API BASE URL:
+REPLACE_THIS_WITH_MY_RAILWAY_PUBLIC_DOMAIN
+
+Use:
+GET {API_BASE_URL}/public-stats
+GET {API_BASE_URL}/public-trades?limit=25
+
+Refresh /public-stats every 20 seconds.
+Refresh /public-trades every 30 seconds.
+Do not refresh every second.
+
+HOME PAGE MAPPING
+/public-stats:
+- treasuryUsd -> TOTAL TREASURY
+- treasuryGrowthPct -> TREASURY GROWTH
+- startingTreasuryUsd -> "Started at $X"
+- todayRealizedPnlUsd -> TODAY'S REALIZED P&L
+- allTimeRealizedPnlUsd -> ALL-TIME REALIZED P&L
+- winRatePct -> WIN RATE
+- wins + losses -> "X wins · Y losses"
+- survivalDays -> SURVIVAL STREAK
+- statusLabel -> top-right Broke Cat status pill
+- openPositions -> a small "Open positions" stat. Show count only. Never show active coin identities.
+- updatedAt -> small "Updated ..." text
+
+CAT GOT PAID PAGE
+Use /public-trades.
+Show both winners and losses for transparency.
+
+Each completed trade card may show ONLY:
+- symbol
+- result
+- initialPositionUsd
+- realizedPnlUsd
+- realizedPnlPct
+- lane
+- score only because the trade is already completed
+- verification transaction links/signatures
+- closedAt
+
+DO NOT SHOW:
+- holding duration
+- entry/exit timing patterns
+- stop loss
+- profit targets
+- strategy logic
+- active positions/token identities
+- moon-bag amount or percentage
+
+For positive completed trades use:
+"CAT GOT PAID 😼💰"
+
+For negative completed trades use:
+"CAT GOT SCRATCHED 😿"
+
+Add loading skeletons while requests are loading.
+If API request fails, keep the page usable and show "Live data temporarily unavailable."
+Do not substitute mock financial numbers.
+
+Use the existing design system, spacing, cards, typography and colors.
