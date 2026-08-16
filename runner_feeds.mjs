@@ -1,4 +1,5 @@
 import {config} from './config.mjs';
+import {mobulaTrending} from './mobula_intel.mjs';
 
 const GT='https://api.geckoterminal.com/api/v2';
 const BIRDEYE='https://public-api.birdeye.so';
@@ -55,6 +56,14 @@ async function pumpfunTrending(map){
   return{enabled:true,count:n,sorts:['h1_trending','h6_trending']};
 }
 
+
+async function mobula(map){
+  const result=await mobulaTrending();
+  if(!result.enabled)return result;
+  let n=0;for(const x of result.rows||[]){if(!x.address)continue;add(map,x.address,'mobula-axiom-trending',{platform:'axiom-style',symbol:x.symbol,name:x.name,marketCapUsd:x.marketCap,liquidityUsd:x.liquidity,volume5m:x.volume5m,volume1h:x.volume1h,change5m:x.priceChange5m,change1h:x.priceChange1h,bundlersPct:x.bundlersPct,devPct:x.devPct,top10Pct:x.top10Pct,insidersPct:x.insidersPct,snipersPct:x.snipersPct,holdersCount:x.holdersCount});n++}
+  return{enabled:true,count:n};
+}
+
 async function bitquery(map){
   if(!config.bitqueryEnabled)return{enabled:false,why:'disabled'};
   if(!config.bitqueryToken)return{enabled:false,why:'missing BITQUERY_API_TOKEN'};
@@ -92,11 +101,11 @@ export async function refreshRunnerFeeds(force=false){
   if(!config.crossPlatformEnabled)return{addresses:[],statuses:{disabled:true}};
   const ttl=Math.max(15,config.runnerFeedPollSeconds)*1000;if(!force&&Date.now()-cache.at<ttl)return{addresses:[...cache.addresses.keys()],statuses:cache.statuses};
   const map=new Map();const statuses={};
-  for(const [name,fn] of [['birdeye',birdeye],['geckoterminal',gecko],['pumpfun-trending',pumpfunTrending],['pumpfun-bitquery',bitquery],['telegram',telegram]]){
+  for(const [name,fn] of [['mobula-axiom',mobula],['birdeye',birdeye],['geckoterminal',gecko],['pumpfun-trending',pumpfunTrending],['pumpfun-bitquery',bitquery],['telegram',telegram]]){
     try{statuses[name]=await fn(map)}catch(e){statuses[name]={enabled:true,error:e?.message||String(e)}}
   }
   cache.at=Date.now();cache.addresses=map;cache.statuses=statuses;
   return{addresses:[...map.keys()].slice(0,config.runnerFeedMaxAddresses),statuses};
 }
-export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending')||x.startsWith('birdeye-trending-'));const platforms=[...new Set(sources.map(x=>x.startsWith('pumpfun-')?'pump.fun':x.startsWith('birdeye-trending-')?'birdeye':'geckoterminal'))];return{isTrending:sources.length>0,sources,platforms};}
+export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending')||x.startsWith('birdeye-trending-')||x==='mobula-axiom-trending');const platforms=[...new Set(sources.map(x=>x.startsWith('pumpfun-')?'pump.fun':x==='mobula-axiom-trending'?'axiom-style':x.startsWith('birdeye-trending-')?'birdeye':'geckoterminal'))];return{isTrending:sources.length>0,sources,platforms};}
 export function runnerFeedStatus(){return{lastRefresh:cache.at?new Date(cache.at).toISOString():null,addresses:cache.addresses.size,statuses:cache.statuses}}
