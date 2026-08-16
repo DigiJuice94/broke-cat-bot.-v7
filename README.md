@@ -1,4 +1,36 @@
-## v10.9 discovery-lane fix
+# v11.3 fixed-entry execution
+
+- Every approved normal 85+ entry executes a fixed `$5` buy (`APPROVED_ENTRY_USD=5`).
+- Micro-Cap Early Entry remains a fixed `$5` buy (`MICRO_CAP_ENTRY_USD=5`).
+- Dynamic wallet-percentage sizing no longer vetoes approved signals.
+- The bot still preserves `MIN_SOL_RESERVE=0.003` SOL. If a $5 trade cannot be funded after that reserve, the log states the exact available spendable balance.
+
+# Broke Cat Bot v11.2
+
+## v11.2 — Micro-Cap Early Entry
+- Adds a separate **$5 fixed Micro-Cap Early Entry** path for clean, active tokens in the first 15 minutes.
+- Default micro-cap market-cap window: **$3,000–$20,000**.
+- Keeps the **$3,000 liquidity floor**, **bundle >13% hard NO TRADE**, and **HIGH dev risk hard NO TRADE**.
+- Micro entries may qualify at **72/100**, but must also have at least **30 points from the Early Runner market-activity profile**; clean safety data alone cannot create a buy.
+- Micro positions never add/scale in. Entry is fixed at **$5** (subject to spendable-wallet and liquidity sizing limits).
+- Micro profit plan: +50% sell 15%, +100% sell 25%, +200% sell 25%, +300% sell 25%, leaving **10% moon bag** and freeing the active trading slot.
+- Normal confirmed entries remain **85+** and keep the existing sizing/profit system.
+- Holder concentration remains useful scoring data but is not an emergency panic-sell trigger; bundle/dev hard-risk changes still are.
+
+## v11.1 — Balanced Entry / Data-Rich, Rule-Light
+
+This build keeps Early Runner scoring, platform/trending discovery, Runner Radar, 5-minute revisits, and Axiom-style/Mobula + Birdeye + Helius safety data, but reduces vetoes.
+
+Hard entry stops are intentionally limited to:
+- liquidity below `MIN_LIQUIDITY_USD` (default $3,000)
+- bundle/launch risk still unverified
+- explicit bundle percentage above `BUNDLE_SUPPLY_HIGH_PCT` (default 13%) or a HIGH launch-cluster/bundle result
+- HIGH dev risk (default Mobula dev-holdings HIGH threshold raised to 15%)
+- final score below `MIN_SCORE` (default 85)
+
+Holder concentration, medium bundle/dev risk, snipers, insiders, market-cap range and similar context are soft score signals rather than automatic vetoes. Clean holder/dev/sniper/insider data can now add points.
+
+## v11.0 discovery-lane fix
 - Preserves Early/Trending feed reservations through cached refreshes.
 - Treats explicit new-listing feed tokens as Early discovery candidates even when pair age metadata is missing.
 - Prints EARLY EVALUATED logs and feed/discovery mix diagnostics.
