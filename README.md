@@ -1,6 +1,17 @@
-# Broke Cat Bot v11.13
 
-## v11.13 — Multi-source liquidity resolution
+## V11.14 clean consolidation
+
+- Multi-position live portfolio: up to `MAX_ACTIVE_POSITIONS=3` by default.
+- Combined active-position + tracked moon-bag exposure capped by `MAX_TOTAL_EXPOSURE_PCT=60`.
+- Per-position dynamic allocation remains hard-capped at 30%.
+- `MIN_TRADE_USD=5` is now the primary minimum executed buy variable; legacy `EXECUTION_MIN_USD` is accepted only as a fallback.
+- Existing V11.13 single live position is migrated into `positions[]` at startup.
+- Railway uses `npm start`, Railpack, `/health`, and restart policy `ALWAYS`.
+- No wallet/API secrets are stored in this package.
+
+# Broke Cat Bot v11.14
+
+## v11.14 — Multi-source liquidity resolution
 - Fixes a discovery bug where Mobula/Axiom-style and GeckoTerminal liquidity values were collected but not used by the candidate enricher.
 - Positive DexScreener liquidity remains the primary value.
 - When DexScreener returns zero/missing liquidity for an active newborn token, Broke Cat now falls back to Mobula/Axiom-style or GeckoTerminal pool liquidity before marking the token `LIQUIDITY PENDING`.
@@ -90,9 +101,9 @@ X_HYPE_MIN_LIQUIDITY_USD=500
 VIRAL_SHORTLIST_PER_SCAN=1
 ```
 
-# Broke Cat Bot V9.8 🐱
+# Broke Cat Bot V11.14 🐱
 
-V9.5 keeps the V9 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
+V11.14 keeps the existing V11.13 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
 
 ## What changed
 
@@ -106,7 +117,7 @@ V9.5 keeps the V9 discovery engine and turns Broke Cat into a multi-lane meme-co
 
 Railway variable:
 ```env
-EXECUTION_MIN_USD=0.25
+MIN_TRADE_USD=5
 ```
 
 

@@ -41,4 +41,4 @@ const earlyProfile=earlyRunnerMarketScore({liquidityUsd:10000,volume5m:1800,volu
 assert.ok(earlyProfile.score>=60,'early accelerating runner should earn strong market points without mature raw volume');
 const flatEarly=earlyRunnerMarketScore({liquidityUsd:10000,volume5m:250,volume1h:3000,buys5m:6,sells5m:6},{observed:false,liqGrowth:0});
 assert.ok(flatEarly.score<earlyProfile.score,'flat early activity must not score like an accelerating runner');
-console.log('Broke Cat V10.8 self-test passed');
+console.log('Broke Cat V11.14 self-test passed');
