@@ -1,37 +1,28 @@
-# Broke Cat Bot v11.5
+# Broke Cat Bot v11.9
 
-Lean feed build. Active market/data stack: DexScreener, Axiom-style/Mobula, GeckoTerminal, Helius, and Jupiter. Birdeye discovery/safety, CoinGecko Pump.fun trending, Bitquery Pump.fun discovery, and Telegram intelligence feeds have been removed to reduce moving parts. Telegram alert delivery remains available if TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are configured.
+Current stable build based on v11.8 behavior, with synchronized version metadata and cleaner packaging for GitHub/Railway uploads.
 
+## Current behavior
+- Active market/data stack: **DexScreener, Axiom-style/Mobula, GeckoTerminal, Helius, and Jupiter**.
+- Birdeye discovery/safety, CoinGecko Pump.fun trending, Bitquery Pump.fun discovery, and Telegram intelligence feeds are removed to reduce moving parts. Telegram alert delivery remains available when configured.
+- **Score-based percentage sizing** is enabled again. Approved entries size from the spendable wallet balance after the SOL reserve; there is no fixed $5 entry requirement.
+- `MIN_SOL_RESERVE=0.003` SOL remains protected.
+- Normal confirmed entry threshold remains **85+**.
+- Micro-Cap Early Entry remains available for young, active micro-caps using percentage-based sizing rather than a fixed-dollar buy.
+- Bundle supply above **13%** remains a hard no-trade condition; HIGH dev risk and liquidity below the configured floor remain hard blocks.
+- One active position at a time is still enforced for execution, but **scanning continues while a position is open**. Candidates can be scored/revisited and logged as ready while the current trade is managed.
+- Active positions print periodic holding/P&L updates so the bot does not appear idle.
+- Railway health checks are local/fast and SIGTERM is handled as a clean shutdown.
 
-- Approved entries use score-based percentage sizing from spendable wallet value after the SOL reserve.
-- Micro-Cap Early Entry uses the same percentage-based execution sizing.
-- Dynamic wallet-percentage sizing no longer vetoes approved signals.
-- The bot preserves `MIN_SOL_RESERVE=0.003` SOL and sizes only from the remaining spendable balance.
+## v11.9 maintenance
+- Synchronizes README, package version, health endpoint version, startup banner, and archive folder name to **v11.9**.
+- Packages the project inside a top-level `BrokeCatBot-v11.9/` folder for cleaner GitHub uploads.
+- Preserves the v11.8 trading/scanning behavior; this release does **not** change scoring thresholds or add new feeds.
 
-# Broke Cat Bot v11.5
-
-## v11.5 — Micro-Cap Early Entry
-- Adds a separate **$5 fixed Micro-Cap Early Entry** path for clean, active tokens in the first 15 minutes.
-- Default micro-cap market-cap window: **$3,000–$20,000**.
-- Keeps the **$3,000 liquidity floor**, **bundle >13% hard NO TRADE**, and **HIGH dev risk hard NO TRADE**.
-- Micro entries may qualify at **72/100**, but must also have at least **30 points from the Early Runner market-activity profile**; clean safety data alone cannot create a buy.
-- Micro positions never add/scale in. Entry is fixed at **$5** (subject to spendable-wallet and liquidity sizing limits).
-- Micro profit plan: +50% sell 15%, +100% sell 25%, +200% sell 25%, +300% sell 25%, leaving **10% moon bag** and freeing the active trading slot.
-- Normal confirmed entries remain **85+** and keep the existing sizing/profit system.
-- Holder concentration remains useful scoring data but is not an emergency panic-sell trigger; bundle/dev hard-risk changes still are.
-
-## v11.5 — Balanced Entry / Data-Rich, Rule-Light
-
-This build keeps Early Runner scoring, platform/trending discovery, Runner Radar, 5-minute revisits, and Axiom-style/Mobula + Birdeye + Helius safety data, but reduces vetoes.
-
-Hard entry stops are intentionally limited to:
-- liquidity below `MIN_LIQUIDITY_USD` (default $3,000)
-- bundle/launch risk still unverified
-- explicit bundle percentage above `BUNDLE_SUPPLY_HIGH_PCT` (default 13%) or a HIGH launch-cluster/bundle result
-- HIGH dev risk (default Mobula dev-holdings HIGH threshold raised to 15%)
-- final score below `MIN_SCORE` (default 85)
-
-Holder concentration, medium bundle/dev risk, snipers, insiders, market-cap range and similar context are soft score signals rather than automatic vetoes. Clean holder/dev/sniper/insider data can now add points.
+## v11.8 behavior carried forward
+- Continue discovery/scoring while an active position is open.
+- Do not execute a second buy until the active position closes or detaches as a moon bag.
+- Log strong blocked candidates as ready/watchlist opportunities instead of silently skipping them.
 
 ## v11.0 discovery-lane fix
 - Preserves Early/Trending feed reservations through cached refreshes.
