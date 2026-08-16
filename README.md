@@ -1,13 +1,13 @@
-# v11.3 fixed-entry execution
+# v11.4 fixed-entry execution
 
 - Every approved normal 85+ entry executes a fixed `$5` buy (`APPROVED_ENTRY_USD=5`).
 - Micro-Cap Early Entry remains a fixed `$5` buy (`MICRO_CAP_ENTRY_USD=5`).
 - Dynamic wallet-percentage sizing no longer vetoes approved signals.
 - The bot still preserves `MIN_SOL_RESERVE=0.003` SOL. If a $5 trade cannot be funded after that reserve, the log states the exact available spendable balance.
 
-# Broke Cat Bot v11.2
+# Broke Cat Bot v11.4
 
-## v11.2 — Micro-Cap Early Entry
+## v11.4 — Micro-Cap Early Entry
 - Adds a separate **$5 fixed Micro-Cap Early Entry** path for clean, active tokens in the first 15 minutes.
 - Default micro-cap market-cap window: **$3,000–$20,000**.
 - Keeps the **$3,000 liquidity floor**, **bundle >13% hard NO TRADE**, and **HIGH dev risk hard NO TRADE**.
@@ -17,7 +17,7 @@
 - Normal confirmed entries remain **85+** and keep the existing sizing/profit system.
 - Holder concentration remains useful scoring data but is not an emergency panic-sell trigger; bundle/dev hard-risk changes still are.
 
-## v11.1 — Balanced Entry / Data-Rich, Rule-Light
+## v11.4 — Balanced Entry / Data-Rich, Rule-Light
 
 This build keeps Early Runner scoring, platform/trending discovery, Runner Radar, 5-minute revisits, and Axiom-style/Mobula + Birdeye + Helius safety data, but reduces vetoes.
 
