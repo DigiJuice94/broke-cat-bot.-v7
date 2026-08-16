@@ -12,15 +12,15 @@ export const config={
   dynamicMinPositionPct:n('DYNAMIC_MIN_POSITION_PCT',5), dynamicMaxPositionPct:n('DYNAMIC_MAX_POSITION_PCT',30), dynamicMaxPositionUsd:n('DYNAMIC_MAX_POSITION_USD',0),
   hardStopPct:n('HARD_STOP_PCT',35), legacyStopLossPct:n('STOP_LOSS_PCT',35),
   profitTiers:[
-    {gain:n('TP1_GAIN_PCT',50),sell:n('TP1_SELL_PCT',15)},
-    {gain:n('TP2_GAIN_PCT',100),sell:n('TP2_SELL_PCT',20)},
-    {gain:n('TP3_GAIN_PCT',200),sell:n('TP3_SELL_PCT',20)},
-    {gain:n('TP4_GAIN_PCT',400),sell:n('TP4_SELL_PCT',20)}
+    {gain:n('TP1_GAIN_PCT',10),sell:n('TP1_SELL_PCT',15)},
+    {gain:n('TP2_GAIN_PCT',20),sell:n('TP2_SELL_PCT',20)},
+    {gain:n('TP3_GAIN_PCT',35),sell:n('TP3_SELL_PCT',20)},
+    {gain:n('TP4_GAIN_PCT',60),sell:n('TP4_SELL_PCT',20)}
   ], microProfitTiers:[
-    {gain:n('MICRO_TP1_GAIN_PCT',50),sell:n('MICRO_TP1_SELL_PCT',15)},
-    {gain:n('MICRO_TP2_GAIN_PCT',100),sell:n('MICRO_TP2_SELL_PCT',25)},
-    {gain:n('MICRO_TP3_GAIN_PCT',200),sell:n('MICRO_TP3_SELL_PCT',25)},
-    {gain:n('MICRO_TP4_GAIN_PCT',300),sell:n('MICRO_TP4_SELL_PCT',25)}
+    {gain:n('MICRO_TP1_GAIN_PCT',10),sell:n('MICRO_TP1_SELL_PCT',20)},
+    {gain:n('MICRO_TP2_GAIN_PCT',20),sell:n('MICRO_TP2_SELL_PCT',25)},
+    {gain:n('MICRO_TP3_GAIN_PCT',35),sell:n('MICRO_TP3_SELL_PCT',25)},
+    {gain:n('MICRO_TP4_GAIN_PCT',60),sell:n('MICRO_TP4_SELL_PCT',20)}
   ], moonBagPct:n('MOON_BAG_PCT',25),microMoonBagPct:n('MICRO_MOON_BAG_PCT',10), maxExitChunkUsd:n('MAX_EXIT_CHUNK_USD',100),
   positionRiskRecheckSeconds:n('POSITION_RISK_RECHECK_SECONDS',120),liquidityRecheckSeconds:n('LIQUIDITY_RECHECK_SECONDS',30),
   liquidityWarningDropPct:n('LIQUIDITY_WARNING_DROP_PCT',50),liquidityDangerDropPct:n('LIQUIDITY_DANGER_DROP_PCT',70),liquidityCriticalDropPct:n('LIQUIDITY_CRITICAL_DROP_PCT',85),liquidityConfirmationsRequired:n('LIQUIDITY_CONFIRMATIONS_REQUIRED',3),liquidityCriticalConfirmationsRequired:n('LIQUIDITY_CRITICAL_CONFIRMATIONS_REQUIRED',2),liquidityMinExitEfficiencyPct:n('LIQUIDITY_MIN_EXIT_EFFICIENCY_PCT',75),liquidityCriticalExitEfficiencyPct:n('LIQUIDITY_CRITICAL_EXIT_EFFICIENCY_PCT',60),liquidityConfirmPriceDropPct:n('LIQUIDITY_CONFIRM_PRICE_DROP_PCT',-15),liquidityMinBuySellRatio:n('LIQUIDITY_MIN_BUY_SELL_RATIO',0.6),

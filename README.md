@@ -1,4 +1,11 @@
-# Broke Cat Bot v11.11
+# Broke Cat Bot v11.12
+
+## v11.12 — Earlier profit taking
+- Normal positions now take profit at **+10% / +20% / +35% / +60%**.
+- Normal sell sizes are **15% / 20% / 20% / 20%** of the original position, leaving about **25%** as the moon bag.
+- Micro-cap positions now take profit at **+10% / +20% / +35% / +60%**.
+- Micro sell sizes are **20% / 25% / 25% / 20%**, leaving **10%** as the moon bag.
+- This changes exit timing only; entry scoring, discovery, liquidity floor, bundle/dev safety, and percentage-based entry sizing are unchanged.
 
 ## v11.11 — Liquidity data reliability
 - Retries DexScreener batch data once when a new token has market/volume activity but liquidity temporarily returns as zero.
@@ -22,9 +29,9 @@ Current stable build with synchronized version metadata, cleaner logs, and perce
 - Active positions print periodic holding/P&L updates so the bot does not appear idle.
 - Railway health checks are local/fast and SIGTERM is handled as a clean shutdown.
 
-## v11.11 maintenance
-- Synchronizes README, package version, health endpoint version, startup banner, and archive folder name to **v11.11**.
-- Packages the project inside a top-level `BrokeCatBot-v11.11/` folder for cleaner uploads.
+## v11.12 maintenance
+- Synchronizes README, package version, health endpoint version, startup banner, and archive folder name to **v11.12**.
+- Packages the project inside a top-level `BrokeCatBot-v11.12/` folder for cleaner uploads.
 - Preserves the v11.8 trading/scanning behavior; this release does **not** change scoring thresholds or add new feeds.
 
 ## v11.8 behavior carried forward
@@ -172,13 +179,13 @@ A small bonus (default max +15) can be added for recent X mentions, unique autho
 
 ### 5) Staggered profit taking + moon bag
 Default live exit plan:
-- +50%: sell 15% of the original position
-- +100%: sell 20%
-- +200%: sell 20%
-- +400%: sell 20%
+- +10%: sell 15% of the original position
+- +20%: sell 20%
+- +35%: sell 20%
+- +60%: sell 20%
 - approximately 25% remains as the moon bag
 
-A hard emergency stop defaults to -35%. Emergency on-chain/liquidity deterioration can still close the remaining active position because safety outranks the moon bag. After the final +400% tier, the remaining ~25% is detached into a tracked moon-bag holding so it no longer blocks Broke Cat from scanning/opening the next active trade; V9.5 marks those holdings for wallet-equity/X totals.
+A hard emergency stop defaults to -35%. Emergency on-chain/liquidity deterioration can still close the remaining active position because safety outranks the moon bag. After the final +60% tier, the remaining ~25% is detached into a tracked moon-bag holding so it no longer blocks Broke Cat from scanning/opening the next active trade; V9.5 marks those holdings for wallet-equity/X totals.
 
 Larger partial exits can be split into smaller Jupiter swaps using `MAX_EXIT_CHUNK_USD`.
 
@@ -235,13 +242,13 @@ MIN_SOL_RESERVE=0.003
 HARD_STOP_PCT=35
 POLL_SECONDS=30
 
-TP1_GAIN_PCT=50
+TP1_GAIN_PCT=10
 TP1_SELL_PCT=15
-TP2_GAIN_PCT=100
+TP2_GAIN_PCT=20
 TP2_SELL_PCT=20
-TP3_GAIN_PCT=200
+TP3_GAIN_PCT=35
 TP3_SELL_PCT=20
-TP4_GAIN_PCT=400
+TP4_GAIN_PCT=60
 TP4_SELL_PCT=20
 MOON_BAG_PCT=25
 
