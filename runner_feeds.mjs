@@ -1,39 +1,132 @@
 import {config} from './config.mjs';
 import {mobulaTrending} from './mobula_intel.mjs';
 
+const GT='https://api.geckoterminal.com/api/v2';
+const BIRDEYE='https://public-api.birdeye.so';
+const BITQUERY='https://streaming.bitquery.io/graphql';
+const COINGECKO='https://pro-api.coingecko.com/api/v3';
+const PUMP_PROGRAM='6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 const cache={at:0,addresses:new Map(),selectedAddresses:[],laneMix:{early:0,trending:0,total:0},statuses:{}};
-const num=v=>{const n=Number(v);return Number.isFinite(n)?n:0};
+const num=v=>Number(v??0)||0;
 const add=(map,address,source,meta={})=>{if(!address||typeof address!=='string'||address.length<25)return;const old=map.get(address)||{address,sources:new Set(),meta:{}};old.sources.add(source);old.meta={...old.meta,[source]:meta};map.set(address,old)};
+async function getJson(url,opts={}){const r=await fetch(url,opts);if(!r.ok)throw new Error(`${new URL(url).hostname} ${r.status}`);return r.json()}
+
+async function birdeye(map){
+  if(!config.birdeyeEnabled)return{enabled:false,why:'disabled'};
+  if(!config.birdeyeApiKey)return{enabled:false,why:'missing BIRDEYE_API_KEY'};
+  const hdr={accept:'application/json','x-chain':'solana','X-API-KEY':config.birdeyeApiKey};let newCount=0,trendCount=0;
+  const fresh=await getJson(`${BIRDEYE}/defi/v2/tokens/new_listing?limit=20&meme_platform_enabled=true`,{headers:hdr});
+  const rows=fresh?.data?.items||fresh?.data?.tokens||fresh?.data||[];
+  for(const x of Array.isArray(rows)?rows:[]){const address=x?.address||x?.token_address||x?.tokenAddress||x?.mint;if(address){add(map,address,'birdeye-new',{name:x?.name,symbol:x?.symbol,listedAt:x?.liquidityAddedAt||x?.createdAt});newCount++}}
+  if(config.birdeyeTrendingEnabled){
+    for(const interval of ['1h','4h']){const q=new URLSearchParams({sort_by:'rank',sort_type:'asc',interval,offset:'0',limit:'50'});const j=await getJson(`${BIRDEYE}/defi/token_trending?${q}`,{headers:hdr});const tr=j?.data?.items||j?.data?.tokens||j?.data||[];for(const x of Array.isArray(tr)?tr:[]){const address=x?.address||x?.token_address||x?.tokenAddress||x?.mint;if(address){add(map,address,`birdeye-trending-${interval}`,{platform:'birdeye',interval,rank:x?.rank,name:x?.name,symbol:x?.symbol,liquidityUsd:num(x?.liquidity),volumeUsd:num(x?.volumeUSD||x?.volume_usd)});trendCount++}}}
+  }
+  return{enabled:true,count:newCount+trendCount,newListings:newCount,trending:trendCount};
+}
+function includedTokenMap(j){const m=new Map();for(const x of j?.included||[])if(x?.type==='token'){const a=x?.attributes||{};if(a.address)m.set(x.id,{address:a.address,name:a.name,symbol:a.symbol})}return m}
+async function gecko(map){
+  if(!config.geckoTerminalEnabled)return{enabled:false,why:'disabled'};
+  const jobs=[];
+  for(let page=1;page<=Math.max(1,config.geckoTrendingPages);page++)jobs.push({kind:'gecko-trending',url:`${GT}/networks/solana/trending_pools?include=base_token&page=${page}`});
+  for(let page=1;page<=Math.max(1,config.geckoNewPages);page++)jobs.push({kind:'gecko-new',url:`${GT}/networks/new_pools?include=base_token&page=${page}`});
+  let n=0;
+  for(const job of jobs){
+    const j=await getJson(job.url,{headers:{accept:'application/json'}});const toks=includedTokenMap(j);
+    for(const pool of j?.data||[]){const rel=pool?.relationships?.base_token?.data?.id;const tok=toks.get(rel);if(tok?.address){add(map,tok.address,job.kind,{pool:pool?.attributes?.address,name:tok.name,symbol:tok.symbol});n++}}
+  }
+  return{enabled:true,count:n,pages:jobs.length};
+}
+
+async function pumpfunTrending(map){
+  if(!config.coinGeckoPlatformTrendingEnabled)return{enabled:false,why:'disabled'};
+  if(!config.coinGeckoApiKey)return{enabled:false,why:'missing COINGECKO_API_KEY'};
+  // CoinGecko's Megafilter can isolate Pump.fun and rank by trending momentum.
+  // We intentionally query both 1h and 6h so a runner can surface after its launch window.
+  let n=0;
+  for(const sort of ['h1_trending','h6_trending']){
+    const q=new URLSearchParams({networks:'solana',dexes:'pump-fun',sort,include:'base_token,dex,network'});
+    const j=await getJson(`${COINGECKO}/onchain/pools/megafilter?${q}`,{headers:{accept:'application/json','x-cg-pro-api-key':config.coinGeckoApiKey}});
+    const toks=includedTokenMap(j);
+    for(const pool of j?.data||[]){
+      const rel=pool?.relationships?.base_token?.data?.id;const tok=toks.get(rel);if(!tok?.address)continue;
+      const a=pool?.attributes||{};
+      add(map,tok.address,`pumpfun-${sort}`,{platform:'pump.fun',sort,pool:a.address,name:tok.name,symbol:tok.symbol,liquidityUsd:num(a.reserve_in_usd),marketCapUsd:num(a.market_cap_usd||a.fdv_usd),volume5m:num(a.volume_usd?.m5),volume1h:num(a.volume_usd?.h1),change5m:num(a.price_change_percentage?.m5),change1h:num(a.price_change_percentage?.h1)});n++;
+    }
+  }
+  return{enabled:true,count:n,sorts:['h1_trending','h6_trending']};
+}
+
+
 async function mobula(map){
   const result=await mobulaTrending();
   if(!result.enabled)return result;
   let n=0;for(const x of result.rows||[]){if(!x.address)continue;add(map,x.address,'mobula-axiom-trending',{platform:'axiom-style',symbol:x.symbol,name:x.name,marketCapUsd:x.marketCap,liquidityUsd:x.liquidity,volume5m:x.volume5m,volume1h:x.volume1h,change5m:x.priceChange5m,change1h:x.priceChange1h,bundlersPct:x.bundlersPct,devPct:x.devPct,top10Pct:x.top10Pct,insidersPct:x.insidersPct,snipersPct:x.snipersPct,holdersCount:x.holdersCount});n++}
   return{enabled:true,count:n};
 }
+
+async function bitquery(map){
+  if(!config.bitqueryEnabled)return{enabled:false,why:'disabled'};
+  if(!config.bitqueryToken)return{enabled:false,why:'missing BITQUERY_API_TOKEN'};
+  // Pump.fun recent launches. Query is intentionally small and fail-open; Birdeye meme-platform discovery remains an independent backup.
+  const query=`query BrokeCatPumpLaunches { Solana(dataset: realtime) { TokenSupplyUpdates(limit: {count: 20}, orderBy: {descending: Block_Time}, where: {Instruction: {Program: {Address: {is: \"${PUMP_PROGRAM}\"}, Method: {in: [\"create\",\"create_v2\"]}}}, Transaction: {Result: {Success: true}}}) { Block { Time } Transaction { Signer } TokenSupplyUpdate { Currency { Name Symbol MintAddress Uri UpdateAuthority } } } } }`;
+  const j=await getJson(BITQUERY,{method:'POST',headers:{'content-type':'application/json','Authorization':`Bearer ${config.bitqueryToken}`},body:JSON.stringify({query})});
+  if(j?.errors?.length)throw new Error(`Bitquery GraphQL: ${j.errors[0]?.message||'query error'}`);
+  const rows=j?.data?.Solana?.TokenSupplyUpdates||[];let n=0;
+  for(const x of rows){const c=x?.TokenSupplyUpdate?.Currency||{};if(c.MintAddress){add(map,c.MintAddress,'pumpfun-bitquery',{name:c.Name,symbol:c.Symbol,createdAt:x?.Block?.Time,creator:x?.Transaction?.Signer,uri:c.Uri});n++}}
+  return{enabled:true,count:n};
+}
+let telegramOffset=0;
+const caRegex=/\b[1-9A-HJ-NP-Za-km-z]{32,44}\b/g;
+async function telegram(map){
+  if(!config.telegramIntelEnabled)return{enabled:false,why:'disabled'};
+  if(!config.telegramIntelBotToken)return{enabled:false,why:'missing TELEGRAM_INTEL_BOT_TOKEN'};
+  // Telegram Bot API only provides channel posts from channels where the bot is a member. This does not scrape arbitrary channels.
+  const url=`https://api.telegram.org/bot${config.telegramIntelBotToken}/getUpdates?timeout=0&limit=100&offset=${telegramOffset}`;
+  const j=await getJson(url);let n=0,posts=0;
+  for(const u of j?.result||[]){telegramOffset=Math.max(telegramOffset,Number(u.update_id||0)+1);const post=u.channel_post||u.edited_channel_post;const text=post?.text||post?.caption||'';if(!text)continue;posts++;const low=text.toLowerCase();const hit=config.telegramIntelKeywords.some(k=>low.includes(String(k).toLowerCase()));if(!hit)continue;for(const ca of text.match(caRegex)||[]){add(map,ca,'telegram-watch',{channel:post?.chat?.username||post?.chat?.title||'channel',date:post?.date});n++}}
+  return{enabled:true,count:n,posts};
+}
+function socialCommunitySignal(candidate){
+  const socials=candidate?.info?.socials||[];const telegramLinks=socials.filter(x=>String(x?.type||'').toLowerCase().includes('telegram')||String(x?.url||'').includes('t.me/'));
+  return telegramLinks.length?{telegramPresence:true,count:telegramLinks.length}:null;
+}
 export function confirmationFor(candidate){
-  const row=cache.addresses.get(candidate.tokenAddress);const sources=row?[...row.sources]:[];const unique=[...new Set(sources)];
+  const row=cache.addresses.get(candidate.tokenAddress);const sources=row?[...row.sources]:[];const community=socialCommunitySignal(candidate);if(community)sources.push('telegram-community');
+  const unique=[...new Set(sources)];
+  // Confirmation is deliberately capped and cannot bypass hard on-chain safety gates.
   const independent=Math.max(0,unique.length-1);const bonus=config.crossPlatformEnabled?Math.min(config.crossPlatformBonusMax,independent*2):0;
-  return{sources:unique,count:unique.length,bonus,community:null,meta:row?.meta||{}};
+  return{sources:unique,count:unique.length,bonus,community,meta:row?.meta||{}};
 }
 export async function refreshRunnerFeeds(force=false){
-  if(!config.crossPlatformEnabled)return{addresses:[],statuses:{disabled:true},laneMix:{early:0,trending:0,total:0}};
+  if(!config.crossPlatformEnabled)return{addresses:[],statuses:{disabled:true}};
   const ttl=Math.max(15,config.runnerFeedPollSeconds)*1000;if(!force&&Date.now()-cache.at<ttl)return{addresses:[...(cache.selectedAddresses||[])],statuses:cache.statuses,laneMix:cache.laneMix};
   const map=new Map();const statuses={};
-  try{statuses['mobula-axiom']=await mobula(map)}catch(e){statuses['mobula-axiom']={enabled:true,error:e?.message||String(e)}}
+  for(const [name,fn] of [['mobula-axiom',mobula],['birdeye',birdeye],['geckoterminal',gecko],['pumpfun-trending',pumpfunTrending],['pumpfun-bitquery',bitquery],['telegram',telegram]]){
+    try{statuses[name]=await fn(map)}catch(e){statuses[name]={enabled:true,error:e?.message||String(e)}}
+  }
   cache.at=Date.now();cache.addresses=map;cache.statuses=statuses;
-  const max=Math.max(20,config.runnerFeedMaxAddresses||120);const rows=[...map.values()];
-  const isTrend=r=>[...r.sources].some(x=>x==='mobula-axiom-trending');
-  const chosen=[];const used=new Set();const take=(filter,limit)=>{for(const r of rows){if(chosen.length>=max||limit<=0)break;if(used.has(r.address)||!filter(r))continue;chosen.push(r.address);used.add(r.address);limit--}};
-  take(isTrend,Math.min(max,Math.max(0,config.runnerFeedTrendReserve||50)));take(()=>true,max-chosen.length);
-  const laneMix={early:0,trending:chosen.filter(a=>isTrend(map.get(a))).length,total:chosen.length};
-  cache.selectedAddresses=[...chosen];cache.laneMix=laneMix;return{addresses:chosen,statuses,laneMix};
+  // Keep one noisy platform from consuming the entire feed budget. New-launch sources
+  // and trending sources each get reserved capacity, then any unused slots are backfilled.
+  const max=Math.max(20,config.runnerFeedMaxAddresses||120);
+  const rows=[...map.values()];
+  const isEarly=r=>[...r.sources].some(x=>x==='birdeye-new'||x==='gecko-new'||x==='pumpfun-bitquery');
+  const isTrend=r=>[...r.sources].some(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending')||x.startsWith('birdeye-trending-')||x==='mobula-axiom-trending');
+  const chosen=[];const used=new Set();
+  const take=(filter,limit)=>{for(const r of rows){if(chosen.length>=max||limit<=0)break;if(used.has(r.address)||!filter(r))continue;chosen.push(r.address);used.add(r.address);limit--}};
+  take(isEarly,Math.min(max,Math.max(0,config.runnerFeedEarlyReserve||40)));
+  take(isTrend,Math.min(max-chosen.length,Math.max(0,config.runnerFeedTrendReserve||50)));
+  take(()=>true,max-chosen.length);
+  const laneMix={early:chosen.filter(a=>isEarly(map.get(a))).length,trending:chosen.filter(a=>isTrend(map.get(a))).length,total:chosen.length};
+  cache.selectedAddresses=[...chosen];cache.laneMix=laneMix;
+  return{addresses:chosen,statuses,laneMix};
 }
-export function discoverySourceFor(address){const row=cache.addresses.get(address);if(!row)return{isNewLaunch:false,isTrending:false,sources:[]};const sources=[...row.sources];return{isNewLaunch:false,isTrending:sources.includes('mobula-axiom-trending'),sources};}
-export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='mobula-axiom-trending');return{isTrending:sources.length>0,sources,platforms:sources.length?['axiom-style']:[]};}
+export function discoverySourceFor(address){
+  const row=cache.addresses.get(address);
+  if(!row)return{isNewLaunch:false,isTrending:false,sources:[]};
+  const sources=[...row.sources];
+  const isNewLaunch=sources.some(x=>x==='birdeye-new'||x==='gecko-new'||x==='pumpfun-bitquery');
+  const isTrending=sources.some(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending')||x.startsWith('birdeye-trending-')||x==='mobula-axiom-trending');
+  return{isNewLaunch,isTrending,sources};
+}
+export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending')||x.startsWith('birdeye-trending-')||x==='mobula-axiom-trending');const platforms=[...new Set(sources.map(x=>x.startsWith('pumpfun-')?'pump.fun':x==='mobula-axiom-trending'?'axiom-style':x.startsWith('birdeye-trending-')?'birdeye':'geckoterminal'))];return{isTrending:sources.length>0,sources,platforms};}
 export function runnerFeedStatus(){return{lastRefresh:cache.at?new Date(cache.at).toISOString():null,addresses:cache.addresses.size,statuses:cache.statuses}}
-export function marketDataFor(address){
-  const row=cache.addresses.get(address);if(!row)return null;const metas=Object.entries(row.meta||{}).map(([source,meta])=>({source,meta:meta||{}}));
-  const liquid=metas.filter(x=>num(x.meta.liquidityUsd)>0).sort((a,b)=>num(b.meta.liquidityUsd)-num(a.meta.liquidityUsd))[0];
-  const first=key=>{for(const x of metas){const v=num(x.meta[key]);if(v>0)return v}return 0};const text=key=>{for(const x of metas){const v=x.meta[key];if(v)return v}return null};
-  return{liquidityUsd:liquid?num(liquid.meta.liquidityUsd):0,liquiditySource:liquid?.source||null,marketCapUsd:first('marketCapUsd'),volume5m:first('volume5m'),volume1h:first('volume1h'),change5m:first('change5m'),change1h:first('change1h'),name:text('name'),symbol:text('symbol')};
-}

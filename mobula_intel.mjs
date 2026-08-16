@@ -38,7 +38,7 @@ function normalize(row){
 }
 async function postPulse(views){
   if(!config.mobulaEnabled||!config.mobulaApiKey)throw new Error('Mobula disabled or MOBULA_API_KEY missing');
-  const r=await fetch(`${BASE}/api/2/pulse`,{method:'POST',headers:authHeaders(),body:JSON.stringify({assetMode:true,compressed:false,excludeDuplicates:true,views}),signal:AbortSignal.timeout(8000)});
+  const r=await fetch(`${BASE}/api/2/pulse`,{method:'POST',headers:authHeaders(),body:JSON.stringify({assetMode:true,compressed:false,excludeDuplicates:true,views})});
   if(!r.ok)throw new Error(`Mobula Pulse ${r.status}: ${(await r.text()).slice(0,180)}`);
   return r.json();
 }

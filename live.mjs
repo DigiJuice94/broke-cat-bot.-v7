@@ -120,23 +120,10 @@ export function loadLiveState(){
     const s=JSON.parse(fs.readFileSync(statePath,'utf8'));
     if(s.day!==today()){s.day=today();s.dailyPnl=0}
     if(!Array.isArray(s.moonBags))s.moonBags=[];
-    if(!Array.isArray(s.positions))s.positions=[];
-    if(!Array.isArray(s.trades))s.trades=[];
-    // V11.14 migration: preserve any V11.13 single open position.
-    if(s.position&&s.position.tokenAddress&&!s.positions.some(p=>p.tokenAddress===s.position.tokenAddress))s.positions.push(s.position);
-    delete s.position;
-    for(const p of s.positions){
-      if(!p.id)p.id=`${p.tokenAddress}:${Date.parse(p.openedAt||0)||Date.now()}`;
-      if(!Array.isArray(p.tiersDone))p.tiersDone=[];
-      if(!p.originalTokenAmountRaw)p.originalTokenAmountRaw=p.tokenAmountRaw;
-      if(!p.liquidityGuard)p.liquidityGuard={confirmations:0,lastDropPct:0,lastLevel:'normal',lastCheckedAt:null,lastExitEfficiencyPct:null,bestPairAddress:p.pairAddress};
-      if(p.lastRiskCheckAt==null)p.lastRiskCheckAt=0;
-      if(p.lastLiquidityCheckAt==null)p.lastLiquidityCheckAt=0;
-    }
     if(s.lastXIdlePostAt===undefined)s.lastXIdlePostAt=null;
     return s;
   }
-  return {day:today(),dailyPnl:0,realizedPnl:0,positions:[],moonBags:[],trades:[],lastXDailyReportDay:null,lastXIdlePostAt:null};
+  return {day:today(),dailyPnl:0,realizedPnl:0,position:null,moonBags:[],trades:[],lastXDailyReportDay:null,lastXIdlePostAt:null};
 }
 export function saveLiveState(s){fs.writeFileSync(statePath,JSON.stringify(s,null,2))}
 export function liveStateFilePath(){return statePath}
@@ -154,10 +141,12 @@ export async function walletSnapshot(){
 export async function assertLiveFunding(){
   const snap=await walletSnapshot();
   console.log(`Wallet diagnostic | derived ${snap.address} | Helius ${snap.heliusLamports==null?'ERR':(snap.heliusLamports/LAMPORTS_PER_SOL).toFixed(6)} SOL | Public RPC ${snap.publicLamports==null?'ERR':(snap.publicLamports/LAMPORTS_PER_SOL).toFixed(6)} SOL | using ${snap.balanceSource}`);
-  // Startup verifies the wallet and reserve. MIN_TRADE_USD is enforced per candidate.
+  // Startup only verifies that the live wallet can be read and that the fee reserve exists.
+  // Trade-size eligibility (including MIN_TRADE_USD) is checked per candidate so a
+  // small wallet can keep scanning instead of crashing the process.
   if(snap.sol<=config.minSolReserve)throw new Error(`Live wallet has ${snap.sol.toFixed(6)} SOL, which is not above the ${config.minSolReserve} SOL reserve.`);
   const spendableUsd=Math.max(0,(snap.sol-config.minSolReserve)*snap.solUsd);
-  if(spendableUsd<config.minTradeUsd)console.log(`Wallet can scan, but spendable value ~$${spendableUsd.toFixed(2)} is below MIN_TRADE_USD $${config.minTradeUsd.toFixed(2)}. New buys wait until sizing reaches the minimum.`);
+  if(spendableUsd<config.minTradeUsd)console.log(`Wallet can scan, but spendable value ~$${spendableUsd.toFixed(2)} is below MIN_TRADE_USD $${config.minTradeUsd.toFixed(2)}. Trades will be skipped until sizing reaches the minimum.`);
   return {...snap,spendableUsd};
 }
 async function jupiterSwap(inputMint,outputMint,amountRaw){
@@ -233,98 +222,128 @@ function dynamicAllocationDecision(candidate){
   pct=Math.max(configuredMin,Math.min(configuredMax,pct));
   return {pct,riskLevel,score,hype,liquidityUsd:liq};
 }
-function activePositions(s){if(!Array.isArray(s.positions))s.positions=[];return s.positions}
-function markPositionUsd(p,currentPrice=null){
-  const px=Number(currentPrice||p.lastPrice||p.entryPrice);
-  const ratio=rawRatio(p.tokenAmountRaw,p.originalTokenAmountRaw);
-  return Math.max(0,Number(p.costUsd||0)*ratio*(px/Number(p.entryPrice||px||1)));
-}
-function markMoonBagsUsd(s){let total=0;for(const m of (s?.moonBags||[])){const px=Number(m.lastPrice||m.entryPrice),ratio=rawRatio(m.tokenAmountRaw,m.originalTokenAmountRaw);total+=Math.max(0,Number(m.costUsd||0)*ratio*(px/Number(m.entryPrice||px||1)));}return total}
-export function portfolioExposure(s,snap){
-  const positions=activePositions(s),activeUsd=positions.reduce((a,p)=>a+markPositionUsd(p),0),moonBagUsd=markMoonBagsUsd(s),tokenExposureUsd=activeUsd+moonBagUsd,totalWalletUsd=Math.max(0,Number(snap.solValueUsd||0)+tokenExposureUsd),exposurePct=totalWalletUsd>0?tokenExposureUsd/totalWalletUsd*100:0;
-  return{activeUsd,moonBagUsd,tokenExposureUsd,totalWalletUsd,exposurePct,activeCount:positions.length};
-}
-export async function positionSizeUsd(candidate,snap,state=null){
-  const spendableUsd=Math.max(0,(snap.sol-config.minSolReserve)*snap.solUsd);
-  const portfolio=state?portfolioExposure(state,snap):{activeUsd:0,moonBagUsd:0,tokenExposureUsd:0,totalWalletUsd:snap.solValueUsd,exposurePct:0,activeCount:0};
-  let target=0,decision={pct:null,riskLevel:'PERCENT'};
+export async function positionSizeUsd(candidate,snap){
+  let target=config.livePositionUsd,decision={pct:null,riskLevel:'FIXED'};
   if(config.positionSizingMode==='dynamic'){
     decision=dynamicAllocationDecision(candidate);
-    target=portfolio.totalWalletUsd*(decision.pct/100);
+    // Size against the current wallet value every entry. No fixed-dollar ceiling is
+    // applied unless DYNAMIC_MAX_POSITION_USD is explicitly set above zero.
+    target=snap.solValueUsd*(decision.pct/100);
     if(config.dynamicMaxPositionUsd>0)target=Math.min(target,config.dynamicMaxPositionUsd);
   }else if(config.positionSizingMode==='percent'){
-    const pct=Math.max(0.1,Math.min(30,Number(config.targetPositionPct||3)));
-    decision={pct,riskLevel:'PERCENT'};
-    target=portfolio.totalWalletUsd*(pct/100);
-    if(config.maxPositionUsd>0)target=Math.min(target,config.maxPositionUsd);
-  }else{
-    decision=dynamicAllocationDecision(candidate);
-    target=portfolio.totalWalletUsd*(decision.pct/100);
-  }
+    target=snap.solValueUsd*(config.targetPositionPct/100);
+    target=Math.min(target,config.maxPositionUsd);
+  }else target=Math.min(target,config.maxPositionUsd);
   if(candidate?.liquidityUsd>0)target=Math.min(target,candidate.liquidityUsd*(config.maxPositionToLiquidityPct/100));
-  const maxExposureUsd=portfolio.totalWalletUsd*(Math.min(100,Math.max(1,config.maxTotalExposurePct))/100);
-  const exposureRoomUsd=Math.max(0,maxExposureUsd-portfolio.tokenExposureUsd);
-  return {usd:Math.max(0,Math.min(target,spendableUsd,exposureRoomUsd)),decision,spendableUsd,portfolio,exposureRoomUsd};
+  const spendableUsd=Math.max(0,(snap.sol-config.minSolReserve)*snap.solUsd);
+  return {usd:Math.max(0,Math.min(target,spendableUsd)),decision};
 }
 export function dynamicRiskDecision(candidate){return dynamicAllocationDecision(candidate)}
 export async function openLive(s,c){
-  const positions=activePositions(s);
-  if(positions.length>=Math.max(1,config.maxActivePositions))return{skipped:true,reason:`MAX_ACTIVE_POSITIONS ${config.maxActivePositions} reached`};
-  if(positions.some(p=>p.tokenAddress===c.tokenAddress))return{skipped:true,reason:`${c.symbol} already has an active position`};
+  if(s.position)throw new Error('Live position already open');
   if(s.dailyPnl<=-config.maxDailyLoss)throw new Error('Daily loss limit reached');
   const snap=await walletSnapshot();
-  const sizing=await positionSizeUsd(c,snap,s),sizeUsd=sizing.usd;
-  if(sizeUsd<config.minTradeUsd)return{skipped:true,reason:`calculated position $${sizeUsd.toFixed(2)} is below MIN_TRADE_USD $${config.minTradeUsd.toFixed(2)}`,calculatedUsd:sizeUsd,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'PERCENT',portfolio:sizing.portfolio};
+  const sizing=await positionSizeUsd(c,snap);const sizeUsd=sizing.usd;
+  // Never force a small calculated position upward: doing so could violate the 30%
+  // wallet cap. If Broke Cat's risk sizing produces less than MIN_TRADE_USD, skip it.
+  if(sizeUsd<config.minTradeUsd)return{skipped:true,reason:`calculated position $${sizeUsd.toFixed(2)} is below MIN_TRADE_USD $${config.minTradeUsd.toFixed(2)}`,calculatedUsd:sizeUsd,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED'};
   const sizeSol=sizeUsd/snap.solUsd,amountRaw=Math.floor(sizeSol*LAMPORTS_PER_SOL);
   const swap=await jupiterSwap(SOL_MINT,c.tokenAddress,amountRaw);
-  const actualCostSol=Number(swap.inputRaw)/LAMPORTS_PER_SOL,actualCostUsd=actualCostSol*snap.solUsd,original=String(swap.outputRaw);
-  const position={id:`${c.tokenAddress}:${Date.now()}`,pairAddress:c.pairAddress,tokenAddress:c.tokenAddress,symbol:c.symbol,lane:c.lane,entryMode:c.entryMode||'NORMAL',entryPrice:c.priceUsd,entryLiquidityUsd:c.liquidityUsd,highPrice:c.priceUsd,lastPrice:c.priceUsd,costSol:actualCostSol,costUsd:actualCostUsd,entrySolUsd:snap.solUsd,originalTokenAmountRaw:original,tokenAmountRaw:original,openedAt:new Date().toISOString(),buySignature:swap.signature,score:c.score,hype:c.hype||{},allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'PERCENT',tiersDone:[],realizedFromPositionUsd:0,lastRiskCheckAt:0,lastLiquidityCheckAt:0,liquidityGuard:{confirmations:0,lastDropPct:0,lastLevel:'normal',lastCheckedAt:null,lastExitEfficiencyPct:null,bestPairAddress:c.pairAddress}};
-  positions.push(position);
-  s.trades.push({type:'BUY',mode:'LIVE',positionId:position.id,symbol:c.symbol,lane:c.lane,entryMode:c.entryMode||'NORMAL',tokenAddress:c.tokenAddress,costSol:actualCostSol,costUsd:actualCostUsd,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'PERCENT',tokenAmountRaw:original,price:c.priceUsd,score:c.score,hype:c.hype||{},signature:swap.signature,at:new Date().toISOString()});
-  saveLiveState(s);return{message:`LIVE BUY ~${actualCostSol.toFixed(6)} SOL (~$${actualCostUsd.toFixed(2)}) ${c.symbol} | ${c.entryMode==='MICRO'?'MICRO-CAP EARLY ENTRY':c.lane}${sizing.decision?.pct?` | ${sizing.decision.pct.toFixed(1)}% wallet | risk ${sizing.decision.riskLevel}`:''} | positions ${positions.length}/${config.maxActivePositions} | tx ${swap.signature}`,signature:swap.signature,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'PERCENT',position};
+  const actualCostSol=Number(swap.inputRaw)/LAMPORTS_PER_SOL,actualCostUsd=actualCostSol*snap.solUsd;
+  const original=String(swap.outputRaw);
+  s.position={pairAddress:c.pairAddress,tokenAddress:c.tokenAddress,symbol:c.symbol,lane:c.lane,entryPrice:c.priceUsd,entryLiquidityUsd:c.liquidityUsd,highPrice:c.priceUsd,lastPrice:c.priceUsd,costSol:actualCostSol,costUsd:actualCostUsd,entrySolUsd:snap.solUsd,originalTokenAmountRaw:original,tokenAmountRaw:original,openedAt:new Date().toISOString(),buySignature:swap.signature,score:c.score,hype:c.hype||{},allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED',tiersDone:[],realizedFromPositionUsd:0,lastRiskCheckAt:0,lastLiquidityCheckAt:0,liquidityGuard:{confirmations:0,lastDropPct:0,lastLevel:'normal',lastCheckedAt:null,lastExitEfficiencyPct:null,bestPairAddress:c.pairAddress}};
+  s.trades.push({type:'BUY',mode:'LIVE',symbol:c.symbol,lane:c.lane,tokenAddress:c.tokenAddress,costSol:actualCostSol,costUsd:actualCostUsd,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED',tokenAmountRaw:original,price:c.priceUsd,score:c.score,hype:c.hype||{},signature:swap.signature,at:new Date().toISOString()});
+  saveLiveState(s);return{message:`LIVE BUY ~${actualCostSol.toFixed(6)} SOL (~$${actualCostUsd.toFixed(2)}) ${c.symbol} | ${c.lane}${sizing.decision?.pct?` | ${sizing.decision.pct.toFixed(1)}% wallet | risk ${sizing.decision.riskLevel}`:''} | tx ${swap.signature}`,signature:swap.signature,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED'};
 }
 function pctMove(p,price){return(price/p.entryPrice-1)*100}
-export function positionAction(s,p,price){
-  if(!p||price<=0)return null;p.highPrice=Math.max(Number(p.highPrice)||p.entryPrice,price);p.lastPrice=price;const ret=pctMove(p,price);
+export function positionAction(s,price){
+  const p=s.position;if(!p||price<=0)return null;p.highPrice=Math.max(Number(p.highPrice)||p.entryPrice,price);p.lastPrice=price;const ret=pctMove(p,price);
   if(ret<=-config.hardStopPct)return{type:'full',reason:`HARD STOP -${config.hardStopPct}%`};
-  const tiers=p.entryMode==='MICRO'?config.microProfitTiers:config.profitTiers;
-  for(let i=0;i<tiers.length;i++){const t=tiers[i];if(ret>=t.gain&&!p.tiersDone.includes(i))return{type:'partial',tier:i,sellPct:t.sell,reason:`${p.entryMode==='MICRO'?'MICRO ':''}TP${i+1} +${t.gain}%`};}
+  for(let i=0;i<config.profitTiers.length;i++){const t=config.profitTiers[i];if(ret>=t.gain&&!p.tiersDone.includes(i))return{type:'partial',tier:i,sellPct:t.sell,reason:`TP${i+1} +${t.gain}%`};}
   saveLiveState(s);return null;
 }
 async function sellRawInChunks(p,rawAmount,estimatedUsd){
   let remaining=BigInt(rawAmount),receivedRaw=0n,lastSig=null;const chunks=Math.max(1,Math.ceil(Math.max(0,estimatedUsd)/Math.max(1,config.maxExitChunkUsd)));
-  for(let i=0;i<chunks&&remaining>0n;i++){const left=BigInt(chunks-i),chunk=remaining/left;const swap=await jupiterSwap(p.tokenAddress,SOL_MINT,chunk.toString());remaining-=chunk;receivedRaw+=BigInt(swap.outputRaw);lastSig=swap.signature;if(chunks>1)await new Promise(r=>setTimeout(r,1200));}
+  for(let i=0;i<chunks&&remaining>0n;i++){const left=BigInt(chunks-i);const chunk=remaining/left;const swap=await jupiterSwap(p.tokenAddress,SOL_MINT,chunk.toString());remaining-=chunk;receivedRaw+=BigInt(swap.outputRaw);lastSig=swap.signature;if(chunks>1)await new Promise(r=>setTimeout(r,1200));}
   return{outputRaw:receivedRaw.toString(),signature:lastSig};
 }
-function removePosition(s,p){const arr=activePositions(s),i=arr.findIndex(x=>x.id===p.id||(x.tokenAddress===p.tokenAddress&&x.openedAt===p.openedAt));if(i>=0)arr.splice(i,1)}
-export async function partialTakeProfit(s,p,action){
-  if(!p)throw new Error('No live position');const original=BigInt(p.originalTokenAmountRaw),remaining=BigInt(p.tokenAmountRaw);let raw=original*BigInt(Math.round(action.sellPct*100))/10000n;if(raw>remaining)raw=remaining;if(raw<=0n)throw new Error('Partial sell amount is zero');
-  const estimatedUsd=p.costUsd*(Number(action.sellPct)/100)*(p.lastPrice/p.entryPrice),swap=await sellRawInChunks(p,raw.toString(),estimatedUsd),receivedSol=Number(swap.outputRaw)/LAMPORTS_PER_SOL,currentSolUsd=await solUsdPrice(),receivedUsd=receivedSol*currentSolUsd,costBasis=p.costUsd*rawRatio(raw,original),pnlUsd=receivedUsd-costBasis;
+export async function partialTakeProfit(s,action){
+  const p=s.position;if(!p)throw new Error('No live position');const original=BigInt(p.originalTokenAmountRaw),remaining=BigInt(p.tokenAmountRaw);let raw=original*BigInt(Math.round(action.sellPct*100))/10000n;if(raw>remaining)raw=remaining;if(raw<=0n)throw new Error('Partial sell amount is zero');
+  const estimatedUsd=p.costUsd*(Number(action.sellPct)/100)*(p.lastPrice/p.entryPrice);const swap=await sellRawInChunks(p,raw.toString(),estimatedUsd);const receivedSol=Number(swap.outputRaw)/LAMPORTS_PER_SOL,currentSolUsd=await solUsdPrice(),receivedUsd=receivedSol*currentSolUsd;const costBasis=p.costUsd*rawRatio(raw,original);const pnlUsd=receivedUsd-costBasis;
   p.tokenAmountRaw=(remaining-raw).toString();p.tiersDone.push(action.tier);p.realizedFromPositionUsd=Number(p.realizedFromPositionUsd||0)+pnlUsd;s.realizedPnl+=pnlUsd;s.dailyPnl+=pnlUsd;
-  const remainingPct=rawRatio(p.tokenAmountRaw,original)*100;let moonBagDetached=false,tiers=p.entryMode==='MICRO'?config.microProfitTiers:config.profitTiers,moonBagTarget=p.entryMode==='MICRO'?config.microMoonBagPct:config.moonBagPct;
-  if(action.tier===tiers.length-1&&remainingPct<=moonBagTarget+1){
-    s.moonBags=s.moonBags||[];s.moonBags.push({symbol:p.symbol,entryMode:p.entryMode||'NORMAL',tokenAddress:p.tokenAddress,pairAddress:p.pairAddress,lane:p.lane,entryPrice:p.entryPrice,lastPrice:p.lastPrice,costUsd:p.costUsd,originalTokenAmountRaw:p.originalTokenAmountRaw,tokenAmountRaw:p.tokenAmountRaw,buySignature:p.buySignature,createdAt:new Date().toISOString(),lastUpdatedAt:new Date().toISOString()});removePosition(s,p);moonBagDetached=true;
+  const remainingPct=rawRatio(p.tokenAmountRaw,original)*100;
+  let moonBagDetached=false;
+  // After the final scheduled profit tier, detach the remaining moon bag from the
+  // active trading slot so Broke Cat can keep scanning and open a new opportunity.
+  if(action.tier===config.profitTiers.length-1&&remainingPct<=config.moonBagPct+1){
+    s.moonBags=s.moonBags||[];
+    s.moonBags.push({symbol:p.symbol,tokenAddress:p.tokenAddress,pairAddress:p.pairAddress,lane:p.lane,entryPrice:p.entryPrice,lastPrice:p.lastPrice,costUsd:p.costUsd,originalTokenAmountRaw:p.originalTokenAmountRaw,tokenAmountRaw:p.tokenAmountRaw,buySignature:p.buySignature,createdAt:new Date().toISOString(),lastUpdatedAt:new Date().toISOString()});
+    s.position=null;moonBagDetached=true;
   }
-  s.trades.push({type:'PARTIAL_SELL',mode:'LIVE',positionId:p.id,symbol:p.symbol,lane:p.lane,sellPct:action.sellPct,reason:action.reason,receivedSol,receivedUsd,pnlUsd,signature:swap.signature,remainingTokenAmountRaw:p.tokenAmountRaw,moonBagDetached,at:new Date().toISOString()});saveLiveState(s);
+  s.trades.push({type:'PARTIAL_SELL',mode:'LIVE',symbol:p.symbol,lane:p.lane,sellPct:action.sellPct,reason:action.reason,receivedSol,receivedUsd,pnlUsd,signature:swap.signature,remainingTokenAmountRaw:p.tokenAmountRaw,moonBagDetached,at:new Date().toISOString()});saveLiveState(s);
   return{message:`LIVE TAKE PROFIT ${p.symbol}: ${action.reason} | sold ${action.sellPct}% original | received ${receivedSol.toFixed(6)} SOL (~$${receivedUsd.toFixed(2)}) | realized ${pnlUsd>=0?'+':''}$${pnlUsd.toFixed(2)}${moonBagDetached?' | moon bag detached 🌙':''}`,symbol:p.symbol,pnlUsd,receivedUsd,sellPct:action.sellPct,remainingPct,moonBagDetached,signature:swap.signature};
 }
-export async function emergencyRiskReason(s,p,pair,analyzeRiskFn){
-  if(!p)return null;const now=Date.now(),best=pair;
-  if(best?.pairAddress&&best.pairAddress!==p.pairAddress){console.log(`🐱 LIQUIDITY MIGRATION ${p.symbol} | ${p.pairAddress} -> ${best.pairAddress} | best liq $${Number(best.liquidityUsd||0).toFixed(0)}`);p.pairAddress=best.pairAddress}
+export async function emergencyRiskReason(s,pair,analyzeRiskFn){
+  const p=s.position;if(!p)return null;
+  const now=Date.now();
+  const best=pair;
+
+  // index.mjs resolves the token's current highest-liquidity pool every loop. If the
+  // best pool changes, follow it instead of treating the old pool as a rug by itself.
+  if(best?.pairAddress&&best.pairAddress!==p.pairAddress){
+    console.log(`🐱 LIQUIDITY MIGRATION ${p.symbol} | ${p.pairAddress} -> ${best.pairAddress} | best liq $${Number(best.liquidityUsd||0).toFixed(0)}`);
+    p.pairAddress=best.pairAddress;
+  }
   if(best?.priceUsd>0){p.lastPrice=best.priceUsd;p.highPrice=Math.max(Number(p.highPrice)||p.entryPrice,best.priceUsd)}
-  if(now-Number(p.lastRiskCheckAt||0)>=config.positionRiskRecheckSeconds*1000){p.lastRiskCheckAt=now;try{const risk=await analyzeRiskFn({...best,tokenAddress:p.tokenAddress});const bundlePct=Number(risk.bundlePct);if((Number.isFinite(bundlePct)&&bundlePct>config.bundleSupplyHighPct)||(!Number.isFinite(bundlePct)&&risk.bundleRisk==='high'))return'BUNDLE/LINKED-WALLET RISK TURNED HIGH';if(risk.devRisk==='high')return'DEV/MINT RISK TURNED HIGH'}catch{}}
+
+  // Expensive on-chain risk is rechecked on its own slower clock. These hard safety
+  // changes stay independent from the new liquidity confirmation logic.
+  if(now-Number(p.lastRiskCheckAt||0)>=config.positionRiskRecheckSeconds*1000){
+    p.lastRiskCheckAt=now;
+    try{
+      const risk=await analyzeRiskFn({...best,tokenAddress:p.tokenAddress});
+      if(risk.bundleRisk==='high')return'BUNDLE/LINKED-WALLET RISK TURNED HIGH';
+      if(risk.devRisk==='high')return'DEV/MINT RISK TURNED HIGH';
+      if(risk.holderRisk==='high')return'HOLDER CONCENTRATION TURNED HIGH';
+    }catch{}
+  }
+
+  // Liquidity is checked much faster than the full Helius risk scan so a true rug is
+  // not forced to wait several minutes for confirmation.
   if(now-Number(p.lastLiquidityCheckAt||0)<config.liquidityRecheckSeconds*1000){saveLiveState(s);return null}
-  p.lastLiquidityCheckAt=now;const entryLiq=Number(p.entryLiquidityUsd||0),currentLiq=Number(best?.liquidityUsd||0);if(entryLiq<=0||currentLiq<=0){saveLiveState(s);return null}
-  const dropPct=Math.max(0,(1-currentLiq/entryLiq)*100);p.liquidityGuard=p.liquidityGuard||{confirmations:0,lastDropPct:0,lastLevel:'normal'};const g=p.liquidityGuard;
+  p.lastLiquidityCheckAt=now;
+  const entryLiq=Number(p.entryLiquidityUsd||0),currentLiq=Number(best?.liquidityUsd||0);
+  if(entryLiq<=0||currentLiq<=0){saveLiveState(s);return null}
+  const dropPct=Math.max(0,(1-currentLiq/entryLiq)*100);
+  p.liquidityGuard=p.liquidityGuard||{confirmations:0,lastDropPct:0,lastLevel:'normal'};
+  const g=p.liquidityGuard;
   if(dropPct<config.liquidityWarningDropPct){g.confirmations=0;g.lastLevel='normal';g.lastDropPct=dropPct;g.lastCheckedAt=new Date().toISOString();saveLiveState(s);return null}
   g.confirmations=Number(g.confirmations||0)+1;g.lastDropPct=dropPct;g.lastCheckedAt=new Date().toISOString();g.bestPairAddress=best?.pairAddress||p.pairAddress;
-  let exitEfficiencyPct=NaN;try{const q=await jupiterExitQuote(p.tokenAddress,p.tokenAmountRaw),solUsd=await solUsdPrice(),quotedUsd=(q.outRaw/LAMPORTS_PER_SOL)*solUsd,markedUsd=markPositionUsd(p,Number(best?.priceUsd||p.lastPrice||p.entryPrice));if(markedUsd>0)exitEfficiencyPct=quotedUsd/markedUsd*100;g.lastExitEfficiencyPct=Number.isFinite(exitEfficiencyPct)?exitEfficiencyPct:null;g.lastQuoteError=null}catch(err){g.lastQuoteError=String(err?.message||err).slice(0,180)}
-  const buys=Number(best?.buys5m||0),sells=Number(best?.sells5m||0),buySellRatio=sells>0?buys/sells:(buys>0?99:1),retPct=pctMove(p,Number(best?.priceUsd||p.lastPrice||p.entryPrice)),decision=classifyLiquidityGuard({dropPct,confirmations:g.confirmations,exitEfficiencyPct,retPct,buySellRatio,currentLiquidityUsd:currentLiq});g.lastLevel=decision.level;
-  console.log(`🐱 LIQUIDITY ${decision.level.toUpperCase()} ${p.symbol} | drop ${dropPct.toFixed(1)}% | best liq $${currentLiq.toFixed(0)} | checks ${g.confirmations} | exit efficiency ${Number.isFinite(exitEfficiencyPct)?exitEfficiencyPct.toFixed(1)+'%':'n/a'} | return ${retPct.toFixed(1)}% | buys/sells ${buys}/${sells} | ${decision.exit?'EXIT':'HOLD'}`);saveLiveState(s);return decision.exit?decision.reason:null;
+
+  // Ask Jupiter what the entire remaining position could receive WITHOUT signing or
+  // executing. A healthy quote can veto a false liquidity panic.
+  let exitEfficiencyPct=NaN;
+  try{
+    const q=await jupiterExitQuote(p.tokenAddress,p.tokenAmountRaw);
+    const solUsd=await solUsdPrice();
+    const quotedUsd=(q.outRaw/LAMPORTS_PER_SOL)*solUsd;
+    const markedUsd=p.costUsd*rawRatio(p.tokenAmountRaw,p.originalTokenAmountRaw)*(Number(best?.priceUsd||p.lastPrice||p.entryPrice)/p.entryPrice);
+    if(markedUsd>0)exitEfficiencyPct=quotedUsd/markedUsd*100;
+    g.lastExitEfficiencyPct=Number.isFinite(exitEfficiencyPct)?exitEfficiencyPct:null;
+    g.lastQuoteError=null;
+  }catch(err){g.lastQuoteError=String(err?.message||err).slice(0,180)}
+
+  const buys=Number(best?.buys5m||0),sells=Number(best?.sells5m||0);const buySellRatio=sells>0?buys/sells:(buys>0?99:1);
+  const retPct=pctMove(p,Number(best?.priceUsd||p.lastPrice||p.entryPrice));
+  const decision=classifyLiquidityGuard({dropPct,confirmations:g.confirmations,exitEfficiencyPct,retPct,buySellRatio,currentLiquidityUsd:currentLiq});
+  g.lastLevel=decision.level;
+  console.log(`🐱 LIQUIDITY ${decision.level.toUpperCase()} ${p.symbol} | drop ${dropPct.toFixed(1)}% | best liq $${currentLiq.toFixed(0)} | checks ${g.confirmations} | exit efficiency ${Number.isFinite(exitEfficiencyPct)?exitEfficiencyPct.toFixed(1)+'%':'n/a'} | return ${retPct.toFixed(1)}% | buys/sells ${buys}/${sells} | ${decision.exit?'EXIT':'HOLD'}`);
+  saveLiveState(s);
+  return decision.exit?decision.reason:null;
 }
-export async function closeLive(s,p,reason){
-  if(!p)throw new Error('No live position');const remaining=BigInt(p.tokenAmountRaw);if(remaining<=0n)throw new Error('No live tokens remaining');const estimatedUsd=markPositionUsd(p),swap=await sellRawInChunks(p,remaining.toString(),estimatedUsd),receivedSol=Number(swap.outputRaw)/LAMPORTS_PER_SOL,currentSolUsd=await solUsdPrice(),receivedUsd=receivedSol*currentSolUsd,remainingCostBasis=p.costUsd*rawRatio(remaining,p.originalTokenAmountRaw),pnlUsd=receivedUsd-remainingCostBasis,pnlSol=receivedSol-p.costSol*rawRatio(remaining,p.originalTokenAmountRaw);
-  s.realizedPnl+=pnlUsd;s.dailyPnl+=pnlUsd;s.trades.push({type:'SELL',mode:'LIVE',positionId:p.id,symbol:p.symbol,lane:p.lane,tokenAddress:p.tokenAddress,receivedSol,receivedUsd,pnlUsd,pnlSol,reason,signature:swap.signature,at:new Date().toISOString()});removePosition(s,p);saveLiveState(s);return{message:`LIVE SELL ${p.symbol}: ${reason} | received ${receivedSol.toFixed(6)} SOL (~$${receivedUsd.toFixed(2)}) | P&L ${pnlUsd>=0?'+':''}$${pnlUsd.toFixed(2)} | positions ${activePositions(s).length}/${config.maxActivePositions}`,pnlUsd,pnlSol,receivedSol,receivedUsd,signature:swap.signature,symbol:p.symbol};
+export async function closeLive(s,reason){
+  const p=s.position;if(!p)throw new Error('No live position');const remaining=BigInt(p.tokenAmountRaw);if(remaining<=0n)throw new Error('No live tokens remaining');const estimatedUsd=p.costUsd*rawRatio(remaining,p.originalTokenAmountRaw)*(p.lastPrice/p.entryPrice);const swap=await sellRawInChunks(p,remaining.toString(),estimatedUsd);const receivedSol=Number(swap.outputRaw)/LAMPORTS_PER_SOL,currentSolUsd=await solUsdPrice(),receivedUsd=receivedSol*currentSolUsd;const remainingCostBasis=p.costUsd*rawRatio(remaining,p.originalTokenAmountRaw);const pnlUsd=receivedUsd-remainingCostBasis,pnlSol=receivedSol-p.costSol*rawRatio(remaining,p.originalTokenAmountRaw);
+  s.realizedPnl+=pnlUsd;s.dailyPnl+=pnlUsd;s.trades.push({type:'SELL',mode:'LIVE',symbol:p.symbol,lane:p.lane,tokenAddress:p.tokenAddress,receivedSol,receivedUsd,pnlUsd,pnlSol,reason,signature:swap.signature,at:new Date().toISOString()});s.position=null;saveLiveState(s);return{message:`LIVE SELL ${p.symbol}: ${reason} | received ${receivedSol.toFixed(6)} SOL (~$${receivedUsd.toFixed(2)}) | P&L ${pnlUsd>=0?'+':''}$${pnlUsd.toFixed(2)}`,pnlUsd,pnlSol,receivedSol,receivedUsd,signature:swap.signature,symbol:p.symbol};
 }
 export function tradeStatsLive(s){const sells=s.trades.filter(t=>t.type==='SELL'||t.type==='PARTIAL_SELL');return{totalTrades:sells.length,wins:sells.filter(t=>Number(t.pnlUsd)>0).length,losses:sells.filter(t=>Number(t.pnlUsd)<0).length}}
-export async function walletEquitySnapshot(s){const snap=await walletSnapshot(),portfolio=portfolioExposure(s,snap);return{...snap,openPositionUsd:portfolio.activeUsd,moonBagUsd:portfolio.moonBagUsd,totalWalletUsd:portfolio.totalWalletUsd,activeExposurePct:portfolio.exposurePct,activePositions:portfolio.activeCount};}
+export async function walletEquitySnapshot(s,currentPrice=null){const snap=await walletSnapshot();let openPositionUsd=0;if(s?.position){const p=s.position;const px=Number(currentPrice||p.lastPrice||p.entryPrice);const ratio=rawRatio(p.tokenAmountRaw,p.originalTokenAmountRaw);openPositionUsd=Math.max(0,p.costUsd*ratio*(px/p.entryPrice));}let moonBagUsd=0;for(const m of (s?.moonBags||[])){const px=Number(m.lastPrice||m.entryPrice),ratio=rawRatio(m.tokenAmountRaw,m.originalTokenAmountRaw);moonBagUsd+=Math.max(0,Number(m.costUsd||0)*ratio*(px/Number(m.entryPrice||px||1)));}return{...snap,openPositionUsd,moonBagUsd,totalWalletUsd:snap.solValueUsd+openPositionUsd+moonBagUsd};}

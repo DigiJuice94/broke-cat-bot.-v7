@@ -33,25 +33,21 @@ export function noteRevisit(s,gate,{wasRevisit=false}={}){
 
   if(gate?.ok){if(existing)queue.delete(address);return existing?{action:'qualified',symbol:s.symbol,score}:null;}
 
-  const liquidityPending=String(gate?.why||'').toLowerCase().includes('liquidity data pending');
-  // Missing liquidity on a brand-new pool is a data-timing problem, not a weak-score
-  // signal. Recheck it quickly even if the preliminary score is below the normal queue floor.
-  if(score<config.revisitScoreThreshold&&!liquidityPending){
+  // Only keep/requeue candidates that remain at or above the requested score floor.
+  if(score<config.revisitScoreThreshold){
     if(existing){queue.delete(address);return{action:'dropped',symbol:s.symbol,score,why:`score below ${config.revisitScoreThreshold}`};}
     return null;
   }
 
   if(!existing){
-    const nextMs=liquidityPending?30_000:intervalMs();
-    queue.set(address,{symbol:s.symbol,firstQueuedAt:t,lastCheckedAt:t,nextCheckAt:t+nextMs,lastScore:score,bestScore:score,checks:0,lastWhy:gate?.why||'not entry-ready'});
+    queue.set(address,{symbol:s.symbol,firstQueuedAt:t,lastCheckedAt:t,nextCheckAt:t+intervalMs(),lastScore:score,bestScore:score,checks:0,lastWhy:gate?.why||'not entry-ready'});
     prune();
-    return{action:'added',symbol:s.symbol,score,nextSeconds:nextMs/1000,why:gate?.why||'not entry-ready'};
+    return{action:'added',symbol:s.symbol,score,nextSeconds:intervalMs()/1000,why:gate?.why||'not entry-ready'};
   }
 
   if(wasRevisit){
     const previousScore=existing.lastScore;
-    const nextMs=liquidityPending?30_000:intervalMs();
-    Object.assign(existing,{symbol:s.symbol,lastCheckedAt:t,nextCheckAt:t+nextMs,lastScore:score,bestScore:Math.max(existing.bestScore,score),checks:existing.checks+1,lastWhy:gate?.why||existing.lastWhy});
+    Object.assign(existing,{symbol:s.symbol,lastCheckedAt:t,nextCheckAt:t+intervalMs(),lastScore:score,bestScore:Math.max(existing.bestScore,score),checks:existing.checks+1,lastWhy:gate?.why||existing.lastWhy});
     return{action:'rechecked',symbol:s.symbol,score,previousScore,delta:score-previousScore,checks:existing.checks,nextSeconds:intervalMs()/1000,why:gate?.why||existing.lastWhy};
   }
 

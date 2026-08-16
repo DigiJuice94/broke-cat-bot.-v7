@@ -92,7 +92,6 @@ export async function scoreCandidate(c,hype={bonus:0},cross={bonus:0,sources:[]}
   const accel=c.volume1h>0?c.volume5m/(c.volume1h/12):0;
   const runner=c?.runnerRadar||runnerMetrics(c);
   const earlyProfile=lane==='Early Cat'&&ageMin<=config.earlyRunnerProfileMaxAgeMinutes;
-  let earlyMarketScore=0;
 
   // Preserve the original core freshness/MC/momentum values.
   if(ageMin<=config.maxTokenAgeMinutes){score+=10;reasons.push(`fresh +10 (${ageMin.toFixed(1)}m)`)}
@@ -103,7 +102,6 @@ export async function scoreCandidate(c,hype={bonus:0},cross={bonus:0,sources:[]}
     // Dedicated <=15m profile. Raw volume is a smaller signal; acceleration,
     // capital velocity and participation quality can make up the difference.
     const early=earlyRunnerMarketScore(c,runner);
-    earlyMarketScore=early.score;
     score+=early.score;reasons.push(`EARLY RUNNER PROFILE <=${config.earlyRunnerProfileMaxAgeMinutes}m`,...early.reasons);
     if(ageMin<=10){score+=8;reasons.push('early-window age +8')}
     if(c.marketCap<=50000){score+=8;reasons.push('early-window MC +8')}
@@ -127,63 +125,26 @@ export async function scoreCandidate(c,hype={bonus:0},cross={bonus:0,sources:[]}
   else if(runner.evidenceScore>=40){score+=4;reasons.push(`runner watch ${runner.evidenceScore}/100`)}
 
   const preRiskScore=score;
-  const deepSafety=preRiskScore>=config.deepSafetyMinScore||Boolean(c.platformTrending)||Boolean(runner.isRunner);
+  const deepSafety=preRiskScore>=config.birdeyeSafetyMinScore||Boolean(c.platformTrending)||Boolean(runner.isRunner);
   const risk=await analyzeRisk(c,{deepSafety});
-  // If Axiom-style bundle % is available, normalize the displayed/scored bundle class
-  // to the explicit user policy: <5 low, 5–13 medium, >13 high. Keep the provider
-  // heuristic for diagnostics, but do not let it silently override the numeric rule.
-  if(Number.isFinite(Number(risk.bundlePct))){risk.bundleRiskHeuristic=risk.bundleRisk;const bp=Number(risk.bundlePct);risk.bundleRisk=bp>config.bundleSupplyHighPct?'high':bp>=config.bundleSupplyMediumPct?'medium':'low';}
-  // v11.2 BALANCED ENTRY: safety data should inform the opportunity score,
-  // not make ordinary meme-coin imperfections impossible to overcome.
-  // Only explicit hard-stop conditions are enforced in entryAllowed below.
-  if(risk.bundleRisk==='low'){score+=10;reasons.push('clean bundle/launch profile +10')}
-  if(risk.bundleRisk==='medium'){score-=3;reasons.push('medium bundle risk -3')}
-  // HIGH bundle is a hard stop (> configured threshold, default 13%), so do not
-  // also destroy the opportunity score with a -40 double punishment.
-  if(risk.bundleRisk==='high')reasons.push('HIGH bundle risk = hard safety stop (no score double-penalty)');
-
-  if(risk.devRisk==='low'){score+=3;reasons.push('clean dev profile +3')}
-  if(risk.devRisk==='medium'){score-=3;reasons.push('medium dev risk -3')}
-  if(risk.devRisk==='high')reasons.push('HIGH dev risk = hard safety stop (no score double-penalty)');
-
-  if(risk.holderRisk==='low'){score+=4;reasons.push('healthy holder distribution +4')}
-  if(risk.holderRisk==='medium'){score-=2;reasons.push('medium holder concentration -2')}
-  if(risk.holderRisk==='high'){score-=8;reasons.push('high holder concentration -8 (soft, not a veto)')}
-
+  if(risk.bundleRisk==='low'){score+=10;reasons.push('low launch-cluster risk +10')}
   if(Number(risk.holderCount||0)>=100){score+=4;reasons.push(`${risk.holderCount} holders +4`)}
-  // Axiom-style fields are primarily confirmation signals. Reward clean readings,
-  // while suspicious readings remain visible without multiplying hard rules.
-  if(Number.isFinite(risk.snipersPct)&&risk.snipersPct<=10){score+=2;reasons.push(`low snipers ${risk.snipersPct.toFixed(1)}% +2`)}
-  if(Number.isFinite(risk.insidersPct)&&risk.insidersPct<=10){score+=2;reasons.push(`low insiders ${risk.insidersPct.toFixed(1)}% +2`)}
+  if(risk.bundleRisk==='medium'){score-=15;reasons.push('medium bundle risk -15')}
+  if(risk.bundleRisk==='high'){score-=40;reasons.push('high bundle risk -40')}
+  if(risk.devRisk==='high'){score-=40;reasons.push('high dev risk -40')}
+  if(risk.holderRisk==='medium'){score-=10;reasons.push('medium holder concentration -10')}
+  if(risk.holderRisk==='high'){score-=30;reasons.push('high holder concentration -30')}
 
-  return{...c,lane,ageMin,scoringProfile:earlyProfile?'EARLY_RUNNER':'ESTABLISHED',earlyMarketScore,score:clamp(score),risk,reasons,hype,crossPlatform:cross,runnerRadar:runner};
+  return{...c,lane,ageMin,scoringProfile:earlyProfile?'EARLY_RUNNER':'ESTABLISHED',score:clamp(score),risk,reasons,hype,crossPlatform:cross,runnerRadar:runner};
 }
 
 export function entryAllowed(s){
-  // Keep only the safety rules that protect against obvious non-executable / rug-prone
-  // entries. The rich Axiom-style fields otherwise influence score instead of creating
-  // a growing list of vetoes.
-  if(s.liquidityPending||((Number(s.liquidityUsd)||0)<=0&&((Number(s.marketCap)||0)>0||(Number(s.volume5m)||0)>0)))return{ok:false,why:'liquidity data pending'};
   if(s.liquidityUsd<config.minLiquidity)return{ok:false,why:'liquidity below floor'};
-  const bundlePct=Number(s.risk.bundlePct);const hasBundlePct=Number.isFinite(bundlePct);
-  if(!hasBundlePct&&s.risk.bundleRisk==='unknown')return{ok:false,why:'bundle/launch risk unverified'};
-  if(hasBundlePct&&bundlePct>config.bundleSupplyHighPct)return{ok:false,why:`bundle ${bundlePct.toFixed(1)}% > ${config.bundleSupplyHighPct}% hard limit`};
-  // When Axiom-style numeric bundle data exists, use the user's explicit 13% rule as
-  // source of truth rather than allowing a secondary heuristic to veto a <=13% token.
-  if(!hasBundlePct&&s.risk.bundleRisk==='high')return{ok:false,why:'high bundle/launch risk'};
-  if(s.risk.devRisk==='high')return{ok:false,why:'high dev risk'};
-
-  // MICRO-CAP EARLY ENTRY: execution uses the same percentage-based wallet sizing. It still must be a
-  // genuinely active <=15m market: earlyMarketScore excludes the safety bonuses, so a
-  // dead token cannot qualify simply because bundle/dev readings are clean.
-  const micro=config.microCapEntryEnabled
-    &&s.scoringProfile==='EARLY_RUNNER'
-    &&Number.isFinite(s.ageMin)&&s.ageMin<=config.microCapMaxAgeMinutes
-    &&s.marketCap>=config.microCapMinMarketCap&&s.marketCap<=config.microCapMaxMarketCap
-    &&s.score>=config.microCapMinScore
-    &&Number(s.earlyMarketScore||0)>=config.microCapMinEarlyMarketScore;
-  if(micro)return{ok:true,why:`micro-cap early entry ${s.score} >= ${config.microCapMinScore}`,entryMode:'MICRO'};
-
+  if(s.marketCap<config.minMarketCap||s.marketCap>config.maxMarketCap)return{ok:false,why:'market cap outside bounds'};
+  if(s.risk.bundleRisk==='unknown')return{ok:false,why:'bundle/launch risk unverified'};
+  if(s.risk.bundleRisk==='high')return{ok:false,why:'high bundle/launch risk'};
+  if(s.risk.devRisk==='high')return{ok:false,why:'high dev authority risk'};
+  if(s.risk.holderRisk==='high')return{ok:false,why:'high holder concentration'};
   if(s.score<config.minScore)return{ok:false,why:`score ${s.score} < ${config.minScore}`};
-  return{ok:true,why:'confirmed entry',entryMode:'NORMAL'};
+  return{ok:true,why:'approved'};
 }
