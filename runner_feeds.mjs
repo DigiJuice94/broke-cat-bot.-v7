@@ -13,11 +13,14 @@ async function getJson(url,opts={}){const r=await fetch(url,opts);if(!r.ok)throw
 async function birdeye(map){
   if(!config.birdeyeEnabled)return{enabled:false,why:'disabled'};
   if(!config.birdeyeApiKey)return{enabled:false,why:'missing BIRDEYE_API_KEY'};
-  const url=`${BIRDEYE}/defi/v2/tokens/new_listing?limit=20&meme_platform_enabled=true`;
-  const j=await getJson(url,{headers:{accept:'application/json','x-chain':'solana','X-API-KEY':config.birdeyeApiKey}});
-  const rows=j?.data?.items||j?.data?.tokens||j?.data||[];let n=0;
-  for(const x of Array.isArray(rows)?rows:[]){const address=x?.address||x?.token_address||x?.tokenAddress||x?.mint; if(address){add(map,address,'birdeye',{name:x?.name,symbol:x?.symbol,listedAt:x?.liquidityAddedAt||x?.createdAt});n++}}
-  return{enabled:true,count:n};
+  const hdr={accept:'application/json','x-chain':'solana','X-API-KEY':config.birdeyeApiKey};let newCount=0,trendCount=0;
+  const fresh=await getJson(`${BIRDEYE}/defi/v2/tokens/new_listing?limit=20&meme_platform_enabled=true`,{headers:hdr});
+  const rows=fresh?.data?.items||fresh?.data?.tokens||fresh?.data||[];
+  for(const x of Array.isArray(rows)?rows:[]){const address=x?.address||x?.token_address||x?.tokenAddress||x?.mint;if(address){add(map,address,'birdeye-new',{name:x?.name,symbol:x?.symbol,listedAt:x?.liquidityAddedAt||x?.createdAt});newCount++}}
+  if(config.birdeyeTrendingEnabled){
+    for(const interval of ['1h','4h']){const q=new URLSearchParams({sort_by:'rank',sort_type:'asc',interval,offset:'0',limit:'50'});const j=await getJson(`${BIRDEYE}/defi/token_trending?${q}`,{headers:hdr});const tr=j?.data?.items||j?.data?.tokens||j?.data||[];for(const x of Array.isArray(tr)?tr:[]){const address=x?.address||x?.token_address||x?.tokenAddress||x?.mint;if(address){add(map,address,`birdeye-trending-${interval}`,{platform:'birdeye',interval,rank:x?.rank,name:x?.name,symbol:x?.symbol,liquidityUsd:num(x?.liquidity),volumeUsd:num(x?.volumeUSD||x?.volume_usd)});trendCount++}}}
+  }
+  return{enabled:true,count:newCount+trendCount,newListings:newCount,trending:trendCount};
 }
 function includedTokenMap(j){const m=new Map();for(const x of j?.included||[])if(x?.type==='token'){const a=x?.attributes||{};if(a.address)m.set(x.id,{address:a.address,name:a.name,symbol:a.symbol})}return m}
 async function gecko(map){
@@ -95,5 +98,5 @@ export async function refreshRunnerFeeds(force=false){
   cache.at=Date.now();cache.addresses=map;cache.statuses=statuses;
   return{addresses:[...map.keys()].slice(0,config.runnerFeedMaxAddresses),statuses};
 }
-export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending'));const platforms=[...new Set(sources.map(x=>x.startsWith('pumpfun-')?'pump.fun':'geckoterminal'))];return{isTrending:sources.length>0,sources,platforms};}
+export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending')||x.startsWith('birdeye-trending-'));const platforms=[...new Set(sources.map(x=>x.startsWith('pumpfun-')?'pump.fun':x.startsWith('birdeye-trending-')?'birdeye':'geckoterminal'))];return{isTrending:sources.length>0,sources,platforms};}
 export function runnerFeedStatus(){return{lastRefresh:cache.at?new Date(cache.at).toISOString():null,addresses:cache.addresses.size,statuses:cache.statuses}}

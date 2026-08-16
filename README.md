@@ -1,3 +1,7 @@
+# Broke Cat Bot v10.5
+
+V10.5 fixes two visibility/data-quality gaps. Platform-trending tokens from GeckoTerminal, Pump.fun/CoinGecko, and Birdeye are promoted into the normal scoring pipeline and now print a `PLATFORM EVALUATED` line with score, entry status, and safety resolution. Strong candidates (pre-risk score 68+, Runner Radar hits, or platform-trending tokens) use Birdeye's official Token Security, Creation Info, and First Buyers endpoints alongside Helius. Birdeye First Buyers wallet tags (`bundler`, `sniper`, `dev`, `insider`) are used as an independent launch-risk signal; Helius remains the on-chain fallback/verification path. Results are cached to control API usage. UNKNOWN is still fail-closed for live entries, but the bot now has a second official data path before declaring launch risk unverified.
+
 # Broke Cat Bot v10.1 — Evidence Runner Radar
 
 V10.1 replaces the single-threshold Runner Radar with a multi-signal evidence score. It ranks capital/liquidity growth, 5m volume acceleration, trade participation, buyer share, trade growth, and 1h/5m continuation while penalizing thin-liquidity spikes and low-trade-count one-sided moves. The bot stores rolling token snapshots so it can detect a coin that becomes a runner later instead of only judging its first appearance. Helius holder count plus the existing bundle/dev/top-holder gates remain independent confirmation/safety signals. The market-cap/liquidity settings are broad eligibility floors, not the definition of a runner.
