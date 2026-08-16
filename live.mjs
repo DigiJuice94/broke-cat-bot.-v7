@@ -142,11 +142,11 @@ export async function assertLiveFunding(){
   const snap=await walletSnapshot();
   console.log(`Wallet diagnostic | derived ${snap.address} | Helius ${snap.heliusLamports==null?'ERR':(snap.heliusLamports/LAMPORTS_PER_SOL).toFixed(6)} SOL | Public RPC ${snap.publicLamports==null?'ERR':(snap.publicLamports/LAMPORTS_PER_SOL).toFixed(6)} SOL | using ${snap.balanceSource}`);
   // Startup only verifies that the live wallet can be read and that the fee reserve exists.
-  // Trade-size eligibility (including MIN_TRADE_USD) is checked per candidate so a
-  // small wallet can keep scanning instead of crashing the process.
+  // Startup only checks that the reserve is funded; approved trades are percentage-sized.
+  // There is no $5 minimum-trade gate.
   if(snap.sol<=config.minSolReserve)throw new Error(`Live wallet has ${snap.sol.toFixed(6)} SOL, which is not above the ${config.minSolReserve} SOL reserve.`);
   const spendableUsd=Math.max(0,(snap.sol-config.minSolReserve)*snap.solUsd);
-  if(spendableUsd<config.minTradeUsd)console.log(`Wallet can scan, but spendable value ~$${spendableUsd.toFixed(2)} is below MIN_TRADE_USD $${config.minTradeUsd.toFixed(2)}. Trades will be skipped until sizing reaches the minimum.`);
+  if(spendableUsd<=0)console.log(`Wallet can scan, but no SOL is spendable after the ${config.minSolReserve} SOL reserve. New buys are paused until funded.`);
   return {...snap,spendableUsd};
 }
 async function jupiterSwap(inputMint,outputMint,amountRaw){
@@ -223,13 +223,26 @@ function dynamicAllocationDecision(candidate){
   return {pct,riskLevel,score,hype,liquidityUsd:liq};
 }
 export async function positionSizeUsd(candidate,snap){
-  // v11.3: every approved live entry is a fixed $5 risk budget by default.
-  // Micro and normal entries use the same execution size; no hidden dynamic-sizing veto.
+  // v11.7: percentage-based sizing is restored. The sizing base is only the
+  // spendable wallet value AFTER preserving the SOL fee reserve.
   const spendableUsd=Math.max(0,(snap.sol-config.minSolReserve)*snap.solUsd);
-  const requested=candidate?.entryMode==='MICRO'?config.microCapEntryUsd:config.approvedEntryUsd;
-  const liquidityCap=candidate?.liquidityUsd>0?candidate.liquidityUsd*(config.maxPositionToLiquidityPct/100):requested;
-  const target=Math.min(requested,spendableUsd,liquidityCap);
-  return {usd:Math.max(0,target),decision:{pct:null,riskLevel:candidate?.entryMode==='MICRO'?'MICRO':'FIXED',entryMode:candidate?.entryMode||'NORMAL'}};
+  let target=0,decision={pct:null,riskLevel:'PERCENT'};
+  if(config.positionSizingMode==='dynamic'){
+    decision=dynamicAllocationDecision(candidate);
+    target=spendableUsd*(decision.pct/100);
+    if(config.dynamicMaxPositionUsd>0)target=Math.min(target,config.dynamicMaxPositionUsd);
+  }else if(config.positionSizingMode==='percent'){
+    const pct=Math.max(0.1,Math.min(100,Number(config.targetPositionPct||3)));
+    decision={pct,riskLevel:'PERCENT'};
+    target=spendableUsd*(pct/100);
+    if(config.maxPositionUsd>0)target=Math.min(target,config.maxPositionUsd);
+  }else{
+    // Legacy fixed mode is intentionally retired; fall back to dynamic percentages.
+    decision=dynamicAllocationDecision(candidate);
+    target=spendableUsd*(decision.pct/100);
+  }
+  if(candidate?.liquidityUsd>0)target=Math.min(target,candidate.liquidityUsd*(config.maxPositionToLiquidityPct/100));
+  return {usd:Math.max(0,Math.min(target,spendableUsd)),decision,spendableUsd};
 }
 export function dynamicRiskDecision(candidate){return dynamicAllocationDecision(candidate)}
 export async function openLive(s,c){
@@ -237,17 +250,15 @@ export async function openLive(s,c){
   if(s.dailyPnl<=-config.maxDailyLoss)throw new Error('Daily loss limit reached');
   const snap=await walletSnapshot();
   const sizing=await positionSizeUsd(c,snap);const sizeUsd=sizing.usd;
-  // An approved signal should execute $5. The only sizing-related skip is genuine lack
-  // of spendable SOL after preserving the configured fee reserve (or an unusually tiny liquidity cap).
-  const requestedUsd=c.entryMode==='MICRO'?config.microCapEntryUsd:config.approvedEntryUsd;
-  if(sizeUsd+1e-9<requestedUsd)return{skipped:true,reason:`insufficient spendable balance for fixed $${requestedUsd.toFixed(2)} entry after ${config.minSolReserve} SOL reserve (available ~$${Math.max(0,(snap.sol-config.minSolReserve)*snap.solUsd).toFixed(2)})`,calculatedUsd:sizeUsd,allocationPct:null,riskLevel:sizing.decision?.riskLevel||'FIXED'};
+  // No $5 gate. Only skip a truly dust-sized execution; EXECUTION_MIN_USD defaults to $0.25.
+  if(sizeUsd<config.minTradeUsd)return{skipped:true,reason:`percentage sizing calculated ~$${sizeUsd.toFixed(2)}, below execution dust floor $${config.minTradeUsd.toFixed(2)} (spendable ~$${sizing.spendableUsd.toFixed(2)})`,calculatedUsd:sizeUsd,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'PERCENT'};
   const sizeSol=sizeUsd/snap.solUsd,amountRaw=Math.floor(sizeSol*LAMPORTS_PER_SOL);
   const swap=await jupiterSwap(SOL_MINT,c.tokenAddress,amountRaw);
   const actualCostSol=Number(swap.inputRaw)/LAMPORTS_PER_SOL,actualCostUsd=actualCostSol*snap.solUsd;
   const original=String(swap.outputRaw);
-  s.position={pairAddress:c.pairAddress,tokenAddress:c.tokenAddress,symbol:c.symbol,lane:c.lane,entryMode:c.entryMode||'NORMAL',entryPrice:c.priceUsd,entryLiquidityUsd:c.liquidityUsd,highPrice:c.priceUsd,lastPrice:c.priceUsd,costSol:actualCostSol,costUsd:actualCostUsd,entrySolUsd:snap.solUsd,originalTokenAmountRaw:original,tokenAmountRaw:original,openedAt:new Date().toISOString(),buySignature:swap.signature,score:c.score,hype:c.hype||{},allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED',tiersDone:[],realizedFromPositionUsd:0,lastRiskCheckAt:0,lastLiquidityCheckAt:0,liquidityGuard:{confirmations:0,lastDropPct:0,lastLevel:'normal',lastCheckedAt:null,lastExitEfficiencyPct:null,bestPairAddress:c.pairAddress}};
-  s.trades.push({type:'BUY',mode:'LIVE',symbol:c.symbol,lane:c.lane,entryMode:c.entryMode||'NORMAL',tokenAddress:c.tokenAddress,costSol:actualCostSol,costUsd:actualCostUsd,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED',tokenAmountRaw:original,price:c.priceUsd,score:c.score,hype:c.hype||{},signature:swap.signature,at:new Date().toISOString()});
-  saveLiveState(s);return{message:`LIVE BUY ~${actualCostSol.toFixed(6)} SOL (~$${actualCostUsd.toFixed(2)}) ${c.symbol} | ${c.entryMode==='MICRO'?'MICRO-CAP EARLY ENTRY | $5 FIXED':`${c.lane} | $5 FIXED`} | tx ${swap.signature}`,signature:swap.signature,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'FIXED'};
+  s.position={pairAddress:c.pairAddress,tokenAddress:c.tokenAddress,symbol:c.symbol,lane:c.lane,entryMode:c.entryMode||'NORMAL',entryPrice:c.priceUsd,entryLiquidityUsd:c.liquidityUsd,highPrice:c.priceUsd,lastPrice:c.priceUsd,costSol:actualCostSol,costUsd:actualCostUsd,entrySolUsd:snap.solUsd,originalTokenAmountRaw:original,tokenAmountRaw:original,openedAt:new Date().toISOString(),buySignature:swap.signature,score:c.score,hype:c.hype||{},allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'PERCENT',tiersDone:[],realizedFromPositionUsd:0,lastRiskCheckAt:0,lastLiquidityCheckAt:0,liquidityGuard:{confirmations:0,lastDropPct:0,lastLevel:'normal',lastCheckedAt:null,lastExitEfficiencyPct:null,bestPairAddress:c.pairAddress}};
+  s.trades.push({type:'BUY',mode:'LIVE',symbol:c.symbol,lane:c.lane,entryMode:c.entryMode||'NORMAL',tokenAddress:c.tokenAddress,costSol:actualCostSol,costUsd:actualCostUsd,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'PERCENT',tokenAmountRaw:original,price:c.priceUsd,score:c.score,hype:c.hype||{},signature:swap.signature,at:new Date().toISOString()});
+  saveLiveState(s);return{message:`LIVE BUY ~${actualCostSol.toFixed(6)} SOL (~$${actualCostUsd.toFixed(2)}) ${c.symbol} | ${c.entryMode==='MICRO'?'MICRO-CAP EARLY ENTRY':c.lane}${sizing.decision?.pct?` | ${sizing.decision.pct.toFixed(1)}% spendable wallet | risk ${sizing.decision.riskLevel}`:''} | tx ${swap.signature}`,signature:swap.signature,allocationPct:sizing.decision?.pct??null,riskLevel:sizing.decision?.riskLevel||'PERCENT'};
 }
 function pctMove(p,price){return(price/p.entryPrice-1)*100}
 export function positionAction(s,price){

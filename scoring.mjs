@@ -172,7 +172,7 @@ export function entryAllowed(s){
   if(!hasBundlePct&&s.risk.bundleRisk==='high')return{ok:false,why:'high bundle/launch risk'};
   if(s.risk.devRisk==='high')return{ok:false,why:'high dev risk'};
 
-  // MICRO-CAP EARLY ENTRY: risk is capped by a fixed $5 position. It still must be a
+  // MICRO-CAP EARLY ENTRY: execution uses the same percentage-based wallet sizing. It still must be a
   // genuinely active <=15m market: earlyMarketScore excludes the safety bonuses, so a
   // dead token cannot qualify simply because bundle/dev readings are clean.
   const micro=config.microCapEntryEnabled

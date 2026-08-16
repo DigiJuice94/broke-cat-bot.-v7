@@ -3,10 +3,10 @@
 Lean feed build. Active market/data stack: DexScreener, Axiom-style/Mobula, GeckoTerminal, Helius, and Jupiter. Birdeye discovery/safety, CoinGecko Pump.fun trending, Bitquery Pump.fun discovery, and Telegram intelligence feeds have been removed to reduce moving parts. Telegram alert delivery remains available if TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are configured.
 
 
-- Every approved normal 85+ entry executes a fixed `$5` buy (`APPROVED_ENTRY_USD=5`).
-- Micro-Cap Early Entry remains a fixed `$5` buy (`MICRO_CAP_ENTRY_USD=5`).
+- Approved entries use score-based percentage sizing from spendable wallet value after the SOL reserve.
+- Micro-Cap Early Entry uses the same percentage-based execution sizing.
 - Dynamic wallet-percentage sizing no longer vetoes approved signals.
-- The bot still preserves `MIN_SOL_RESERVE=0.003` SOL. If a $5 trade cannot be funded after that reserve, the log states the exact available spendable balance.
+- The bot preserves `MIN_SOL_RESERVE=0.003` SOL and sizes only from the remaining spendable balance.
 
 # Broke Cat Bot v11.5
 
@@ -91,7 +91,7 @@ V9.5 keeps the V9 discovery engine and turns Broke Cat into a multi-lane meme-co
 
 Railway variable:
 ```env
-MIN_TRADE_USD=5
+EXECUTION_MIN_USD=0.25
 ```
 
 

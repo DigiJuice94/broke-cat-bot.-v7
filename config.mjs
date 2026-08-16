@@ -6,9 +6,9 @@ export const SOL_MINT='So11111111111111111111111111111111111111112';
 export const config={
   tradingMode:s('TRADING_MODE','paper').toLowerCase(), liveAck:s('LIVE_TRADING_ACK',''),
   bankroll:n('PAPER_BANKROLL_USD',11), maxDailyLoss:n('MAX_DAILY_LOSS_USD',3), minScore:n('MIN_SCORE',85), pollSeconds:n('POLL_SECONDS',30),
-  livePositionUsd:n('LIVE_POSITION_USD',5), approvedEntryUsd:n('APPROVED_ENTRY_USD',5), minTradeUsd:n('MIN_TRADE_USD',5), minSolReserve:n('MIN_SOL_RESERVE',0.003),
+  livePositionUsd:n('LIVE_POSITION_USD',5), approvedEntryUsd:n('APPROVED_ENTRY_USD',5), minTradeUsd:n('EXECUTION_MIN_USD',0.25), minSolReserve:n('MIN_SOL_RESERVE',0.003),
   microCapEntryEnabled:b('MICRO_CAP_ENTRY_ENABLED',true),microCapEntryUsd:n('MICRO_CAP_ENTRY_USD',5),microCapMinScore:n('MICRO_CAP_MIN_SCORE',72),microCapMinEarlyMarketScore:n('MICRO_CAP_MIN_EARLY_MARKET_SCORE',30),microCapMaxAgeMinutes:n('MICRO_CAP_MAX_AGE_MINUTES',15),microCapMinMarketCap:n('MICRO_CAP_MIN_MARKET_CAP_USD',3000),microCapMaxMarketCap:n('MICRO_CAP_MAX_MARKET_CAP_USD',20000),
-  positionSizingMode:s('POSITION_SIZING_MODE','fixed').toLowerCase(), targetPositionPct:n('TARGET_POSITION_PCT',3), maxPositionUsd:n('MAX_POSITION_USD',100), maxPositionToLiquidityPct:n('MAX_POSITION_TO_LIQUIDITY_PCT',0.5),
+  positionSizingMode:(()=>{const m=s('POSITION_SIZING_MODE','dynamic').toLowerCase();return m==='fixed'?'dynamic':m})(), targetPositionPct:n('TARGET_POSITION_PCT',3), maxPositionUsd:n('MAX_POSITION_USD',100), maxPositionToLiquidityPct:n('MAX_POSITION_TO_LIQUIDITY_PCT',0.5),
   dynamicMinPositionPct:n('DYNAMIC_MIN_POSITION_PCT',5), dynamicMaxPositionPct:n('DYNAMIC_MAX_POSITION_PCT',30), dynamicMaxPositionUsd:n('DYNAMIC_MAX_POSITION_USD',0),
   hardStopPct:n('HARD_STOP_PCT',35), legacyStopLossPct:n('STOP_LOSS_PCT',35),
   profitTiers:[
