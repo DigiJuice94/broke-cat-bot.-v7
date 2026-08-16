@@ -1,6 +1,6 @@
 import {config} from './config.mjs';
 import {observeRunnerEvidence} from './runner_evidence.mjs';
-import {platformTrendFor,discoverySourceFor} from './runner_feeds.mjs';
+import {platformTrendFor,discoverySourceFor,marketDataFor} from './runner_feeds.mjs';
 const API='https://api.dexscreener.com';
 async function json(url){const r=await fetch(url,{headers:{Accept:'application/json'}});if(!r.ok)throw new Error(`DEX Screener ${r.status}`);return r.json()}
 const num=v=>Number(v??0)||0;
@@ -41,11 +41,20 @@ export async function discoverCandidates(priorityAddresses=[],runnerAddresses=[]
   // Never truncate before market data is loaded. Batch endpoint handles up to 30 addresses/request,
   // letting us cheaply rank the whole discovery universe first and only then cap processing.
   const all=[...addresses];const pairMap=await batchPairs(all);const enriched=[];
-  for(const address of all){let p=pairMap.get(address);if(!p)continue;const trend=platformTrendFor(address);const feed=discoverySourceFor(address);const meta={prioritySource:prioritySet.has(address),runnerSource:runnerSet.has(address),newLaunchSource:feed.isNewLaunch,platformTrending:trend.isTrending,platformTrendSources:trend.sources,platformTrendPlatforms:trend.platforms,discoverySources:feed.sources};
+  for(const address of all){let p=pairMap.get(address);if(!p)continue;const trend=platformTrendFor(address);const feed=discoverySourceFor(address);const fallback=marketDataFor(address);const meta={prioritySource:prioritySet.has(address),runnerSource:runnerSet.has(address),newLaunchSource:feed.isNewLaunch,platformTrending:trend.isTrending,platformTrendSources:trend.sources,platformTrendPlatforms:trend.platforms,discoverySources:feed.sources};
     // Revisit/watch addresses deserve one direct token-pairs fallback because the batch
     // endpoint can lag behind a newly created pool's liquidity update.
     if(p.liquidityUsd<=0&&prioritySet.has(address)&&(p.marketCap>0||p.volume5m>0||p.volume1h>0)){const direct=await pairForToken(address).catch(()=>null);if(direct&&direct.liquidityUsd>p.liquidityUsd)p=direct}
-    const liquidityPending=p.liquidityUsd<=0&&(p.marketCap>0||p.volume5m>0||p.volume1h>0);const rm=observeRunnerEvidence(p);const withRunner={...p,...meta,liquidityPending,runnerRadar:rm};enriched.push({...withRunner,discoveryRank:preRank(withRunner,meta)});}
+    // DexScreener can lag on newborn pools. Mobula/Axiom-style and GeckoTerminal already
+    // carry usable pool liquidity, so use that value when Dex has market activity but no
+    // liquidity yet. Never overwrite a positive DexScreener liquidity reading.
+    let liquiditySource=p.liquidityUsd>0?'dexscreener':null;
+    if(p.liquidityUsd<=0&&Number(fallback?.liquidityUsd||0)>0){p={...p,liquidityUsd:Number(fallback.liquidityUsd)};liquiditySource=fallback.liquiditySource||'feed-fallback'}
+    if(p.marketCap<=0&&Number(fallback?.marketCapUsd||0)>0)p={...p,marketCap:Number(fallback.marketCapUsd)};
+    if(p.volume5m<=0&&Number(fallback?.volume5m||0)>0)p={...p,volume5m:Number(fallback.volume5m)};
+    if(p.volume1h<=0&&Number(fallback?.volume1h||0)>0)p={...p,volume1h:Number(fallback.volume1h)};
+    if((!p.name||p.name==='Unknown')&&fallback?.name)p={...p,name:fallback.name};if((!p.symbol||p.symbol==='?')&&fallback?.symbol)p={...p,symbol:fallback.symbol};
+    const liquidityPending=p.liquidityUsd<=0&&(p.marketCap>0||p.volume5m>0||p.volume1h>0);const rm=observeRunnerEvidence(p);const withRunner={...p,...meta,liquiditySource:liquiditySource||'pending',liquidityPending,runnerRadar:rm};enriched.push({...withRunner,discoveryRank:preRank(withRunner,meta)});}
   const ranked=enriched.sort((a,b)=>b.discoveryRank-a.discoveryRank||(b.volume5m||0)-(a.volume5m||0));
   const max=Math.max(40,config.discoveryMaxAddresses||150);
   const selected=[];const used=new Set();

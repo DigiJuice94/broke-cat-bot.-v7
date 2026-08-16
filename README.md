@@ -1,4 +1,13 @@
-# Broke Cat Bot v11.12
+# Broke Cat Bot v11.13
+
+## v11.13 — Multi-source liquidity resolution
+- Fixes a discovery bug where Mobula/Axiom-style and GeckoTerminal liquidity values were collected but not used by the candidate enricher.
+- Positive DexScreener liquidity remains the primary value.
+- When DexScreener returns zero/missing liquidity for an active newborn token, Broke Cat now falls back to Mobula/Axiom-style or GeckoTerminal pool liquidity before marking the token `LIQUIDITY PENDING`.
+- GeckoTerminal discovery now preserves `reserve_in_usd`, market cap, 5m/1h volume, and momentum fields for fallback enrichment.
+- Logs show the liquidity source, e.g. `$6,855 (dexscreener)` or `$6,855 (mobula-axiom-trending)`.
+- The $3,000 hard liquidity floor is unchanged. Missing data is not treated as safe; a token stays pending only when no active source can resolve liquidity.
+
 
 ## v11.12 — Earlier profit taking
 - Normal positions now take profit at **+10% / +20% / +35% / +60%**.
