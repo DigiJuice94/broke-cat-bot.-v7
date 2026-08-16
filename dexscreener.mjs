@@ -40,6 +40,20 @@ export async function discoverCandidates(priorityAddresses=[],runnerAddresses=[]
   // letting us cheaply rank the whole discovery universe first and only then cap processing.
   const all=[...addresses];const pairMap=await batchPairs(all);const enriched=[];
   for(const address of all){const p=pairMap.get(address);if(!p)continue;const trend=platformTrendFor(address);const meta={prioritySource:prioritySet.has(address),runnerSource:runnerSet.has(address),platformTrending:trend.isTrending,platformTrendSources:trend.sources,platformTrendPlatforms:trend.platforms};const rm=observeRunnerEvidence(p);const withRunner={...p,...meta,runnerRadar:rm};enriched.push({...withRunner,discoveryRank:preRank(withRunner,meta)});}
-  return enriched.sort((a,b)=>b.discoveryRank-a.discoveryRank||(b.volume5m||0)-(a.volume5m||0)).slice(0,Math.max(40,config.discoveryMaxAddresses||150));
+  const ranked=enriched.sort((a,b)=>b.discoveryRank-a.discoveryRank||(b.volume5m||0)-(a.volume5m||0));
+  const max=Math.max(40,config.discoveryMaxAddresses||150);
+  const selected=[];const used=new Set();
+  const ageMin=c=>c.pairCreatedAt?(Date.now()-c.pairCreatedAt)/60000:Infinity;
+  const isEarly=c=>ageMin(c)<=config.earlyMaxAgeMinutes&&c.marketCap<=config.earlyMaxMarketCap;
+  const take=(filter,limit,lane)=>{for(const c of ranked){if(selected.length>=max||limit<=0)break;if(used.has(c.tokenAddress)||!filter(c))continue;selected.push({...c,discoveryLane:lane});used.add(c.tokenAddress);limit--}};
+  // Explicit/watch/revisit addresses are never crowded out. Then reserve scan capacity
+  // for Early Cats, platform trends, and Runner Radar independently. Unused capacity
+  // automatically flows to the strongest remaining candidates.
+  take(c=>c.prioritySource,max,'priority');
+  take(isEarly,Math.min(max-selected.length,Math.max(0,config.discoveryEarlyReserve||50)),'early');
+  take(c=>c.platformTrending,Math.min(max-selected.length,Math.max(0,config.discoveryTrendReserve||45)),'platform');
+  take(c=>Boolean(c.runnerRadar?.isRunner),Math.min(max-selected.length,Math.max(0,config.discoveryRunnerReserve||35)),'runner');
+  take(()=>true,max-selected.length,'general');
+  return selected;
 }
 export async function refreshPair(pairAddress){const data=await json(`${API}/latest/dex/pairs/solana/${pairAddress}`);const p=Array.isArray(data?.pairs)?data.pairs[0]:null;return p?normalizePair(p):null}

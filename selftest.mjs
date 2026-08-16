@@ -5,6 +5,7 @@ import bs58 from 'bs58';
 import { dynamicRiskDecision, parseKey } from './live.mjs';
 import { detectScripts, launchSignal, tokenSearchTerms, transliterate } from './multilingual.mjs';
 import { runnerMetrics } from './dexscreener.mjs';
+import { earlyRunnerMarketScore } from './scoring.mjs';
 
 const low=classifyHolderRisk({totalSupply:1000,holders:[100,70,60,50,40,30,20,20,20,20].map((amount,i)=>({owner:`w${i}`,amount}))});
 assert.equal(low.holderRisk,'medium');
@@ -36,4 +37,8 @@ assert.ok(launchSignal('Адрес контракта опубликован'),'
 assert.ok(launchSignal('合约地址已发布'),'Chinese launch phrase detection failed');
 const runner=runnerMetrics({pairCreatedAt:Date.now()-90*60000,marketCap:1600000,liquidityUsd:61700,volume5m:10000,volume1h:100000,buys5m:40,sells5m:20,priceChange5m:-8,priceChange1h:120});
 assert.equal(runner.isRunner,true,'established 1h runner must be detected even after a 5m pullback');
-console.log('Broke Cat V10.0 self-test passed');
+const earlyProfile=earlyRunnerMarketScore({liquidityUsd:10000,volume5m:1800,volume1h:7200,buys5m:30,sells5m:15},{observed:true,liqGrowth:12});
+assert.ok(earlyProfile.score>=60,'early accelerating runner should earn strong market points without mature raw volume');
+const flatEarly=earlyRunnerMarketScore({liquidityUsd:10000,volume5m:250,volume1h:3000,buys5m:6,sells5m:6},{observed:false,liqGrowth:0});
+assert.ok(flatEarly.score<earlyProfile.score,'flat early activity must not score like an accelerating runner');
+console.log('Broke Cat V10.8 self-test passed');

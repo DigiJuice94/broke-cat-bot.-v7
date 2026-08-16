@@ -1,6 +1,6 @@
 
-## V10.6 — Axiom-style safety + discovery
-Axiom Trade's Pulse UI exposes Top-10, Dev, Insider, Sniper, Bundle and Holder metrics but Axiom does not provide a supported public API. V10.6 adds Mobula Pulse as the supported Axiom-style programmatic layer. Mobula provides the same key holder-distribution fields (`top10HoldingsPercentage`, `devHoldingsPercentage`, `insidersHoldingsPercentage`, `bundlersHoldingsPercentage`, `snipersHoldingsPercentage`, holder counts) and an Axiom-style trending feed. For any platform-trending, runner, or otherwise deep-safety candidate, Broke Cat tries this source alongside Helius and Birdeye. Logs show numeric percentages when available instead of only UNKNOWN. Add `MOBULA_API_KEY` in Railway to enable it.
+## V10.7 — Axiom-style safety + discovery
+Axiom Trade's Pulse UI exposes Top-10, Dev, Insider, Sniper, Bundle and Holder metrics but Axiom does not provide a supported public API. V10.7 adds Mobula Pulse as the supported Axiom-style programmatic layer. Mobula provides the same key holder-distribution fields (`top10HoldingsPercentage`, `devHoldingsPercentage`, `insidersHoldingsPercentage`, `bundlersHoldingsPercentage`, `snipersHoldingsPercentage`, holder counts) and an Axiom-style trending feed. For any platform-trending, runner, or otherwise deep-safety candidate, Broke Cat tries this source alongside Helius and Birdeye. Logs show numeric percentages when available instead of only UNKNOWN. Add `MOBULA_API_KEY` in Railway to enable it.
 
 # Broke Cat Bot v10.5
 
@@ -300,3 +300,9 @@ V10.0 fixes the discovery blind spot where a token could become a major runner a
 
 ## v10.4 — 5-minute score revisit queue
 Rapid Watch has been removed. Candidates that complete scoring at **68/100 or higher** but are not yet entry-ready are queued for a revisit every **5 minutes**. A revisit remains in the queue only while its score stays at least 68; it leaves immediately if it qualifies for entry, drops below 68, or reaches the default 60-minute revisit window. The main discovery loop continues at `POLL_SECONDS` and is no longer accelerated by watched newborns.
+
+
+## v10.8 — Early Runner scoring profile
+Tokens in the first 15 minutes now use a dedicated early-runner market profile instead of being forced to meet the same raw 5-minute-volume standard as established runners. The buy threshold remains 85 and all Axiom-style/Helius/Birdeye safety gates remain intact.
+
+Early Runner emphasizes: liquidity quality, liquidity velocity between observations, volume acceleration, buyer pressure, transaction participation quality, and 5m volume relative to liquidity. Raw 5m volume is deliberately lower weight with default points at $200/$500/$1,000/$2,500 rather than requiring mature-runner volume. After 15 minutes the bot automatically returns to the established v7-style core scoring profile. Social/viral remains optional bonus evidence and cannot be required for entry.

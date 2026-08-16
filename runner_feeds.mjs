@@ -105,7 +105,18 @@ export async function refreshRunnerFeeds(force=false){
     try{statuses[name]=await fn(map)}catch(e){statuses[name]={enabled:true,error:e?.message||String(e)}}
   }
   cache.at=Date.now();cache.addresses=map;cache.statuses=statuses;
-  return{addresses:[...map.keys()].slice(0,config.runnerFeedMaxAddresses),statuses};
+  // Keep one noisy platform from consuming the entire feed budget. New-launch sources
+  // and trending sources each get reserved capacity, then any unused slots are backfilled.
+  const max=Math.max(20,config.runnerFeedMaxAddresses||120);
+  const rows=[...map.values()];
+  const isEarly=r=>[...r.sources].some(x=>x==='birdeye-new'||x==='gecko-new'||x==='pumpfun-bitquery');
+  const isTrend=r=>[...r.sources].some(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending')||x.startsWith('birdeye-trending-')||x==='mobula-axiom-trending');
+  const chosen=[];const used=new Set();
+  const take=(filter,limit)=>{for(const r of rows){if(chosen.length>=max||limit<=0)break;if(used.has(r.address)||!filter(r))continue;chosen.push(r.address);used.add(r.address);limit--}};
+  take(isEarly,Math.min(max,Math.max(0,config.runnerFeedEarlyReserve||40)));
+  take(isTrend,Math.min(max-chosen.length,Math.max(0,config.runnerFeedTrendReserve||50)));
+  take(()=>true,max-chosen.length);
+  return{addresses:chosen,statuses,laneMix:{early:chosen.filter(a=>isEarly(map.get(a))).length,trending:chosen.filter(a=>isTrend(map.get(a))).length,total:chosen.length}};
 }
 export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending')||x.startsWith('birdeye-trending-')||x==='mobula-axiom-trending');const platforms=[...new Set(sources.map(x=>x.startsWith('pumpfun-')?'pump.fun':x==='mobula-axiom-trending'?'axiom-style':x.startsWith('birdeye-trending-')?'birdeye':'geckoterminal'))];return{isTrending:sources.length>0,sources,platforms};}
 export function runnerFeedStatus(){return{lastRefresh:cache.at?new Date(cache.at).toISOString():null,addresses:cache.addresses.size,statuses:cache.statuses}}
