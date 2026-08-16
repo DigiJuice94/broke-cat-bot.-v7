@@ -1,5 +1,5 @@
 
-## V11.14 clean consolidation
+## V11.15 clean consolidation
 
 - Multi-position live portfolio: up to `MAX_ACTIVE_POSITIONS=3` by default.
 - Combined active-position + tracked moon-bag exposure capped by `MAX_TOTAL_EXPOSURE_PCT=60`.
@@ -9,13 +9,10 @@
 - Railway uses `npm start`, Railpack, `/health`, and restart policy `ALWAYS`.
 - No wallet/API secrets are stored in this package.
 
-# Broke Cat Bot v11.14
+# Broke Cat Bot v11.15
 
-## v11.14 — Multi-source liquidity resolution
-- Fixes a discovery bug where Mobula/Axiom-style and GeckoTerminal liquidity values were collected but not used by the candidate enricher.
+## v11.15 — Multi-source liquidity resolution
 - Positive DexScreener liquidity remains the primary value.
-- When DexScreener returns zero/missing liquidity for an active newborn token, Broke Cat now falls back to Mobula/Axiom-style or GeckoTerminal pool liquidity before marking the token `LIQUIDITY PENDING`.
-- GeckoTerminal discovery now preserves `reserve_in_usd`, market cap, 5m/1h volume, and momentum fields for fallback enrichment.
 - Logs show the liquidity source, e.g. `$6,855 (dexscreener)` or `$6,855 (mobula-axiom-trending)`.
 - The $3,000 hard liquidity floor is unchanged. Missing data is not treated as safe; a token stays pending only when no active source can resolve liquidity.
 
@@ -38,8 +35,6 @@
 Current stable build with synchronized version metadata, cleaner logs, and percentage-based sizing.
 
 ## Current behavior
-- Active market/data stack: **DexScreener, Axiom-style/Mobula, GeckoTerminal, Helius, and Jupiter**.
-- Active discovery/safety stack is intentionally lean: DexScreener, Axiom-style/Mobula, GeckoTerminal, Helius, and Jupiter. Telegram alert delivery remains available when configured.
 - **Score-based percentage sizing** is enabled again. Approved entries size from the spendable wallet balance after the SOL reserve; there is no fixed $5 entry requirement.
 - `MIN_SOL_RESERVE=0.003` SOL remains protected.
 - Normal confirmed entry threshold remains **85+**.
@@ -81,7 +76,6 @@ V10.1 replaces the single-threshold Runner Radar with a multi-signal evidence sc
 
 If X viral intelligence returns a billing/credits/payment error, Broke Cat now sends one alert for that outage, marks viral status as `PAY`, and pauses further X intel requests for 30 minutes instead of repeatedly hammering the paid endpoint. Market and on-chain scanning continue independently. A successful X intel request clears the billing state so a future separate outage can alert once again.
 
-At startup the console prints a `DATA FEEDS` line for DexScreener, Axiom-style/Mobula, GeckoTerminal, Helius, and Jupiter.
 
 
 ## V9.8 — X cost guard + viral status fix
@@ -92,18 +86,15 @@ The console now distinguishes `viral DEFER`, `viral ERR`, cached/live hype, and 
 
 Recommended Railway variables:
 ```
-X_INTEL_ENABLED=true
-X_PRELAUNCH_RADAR_ENABLED=false
 X_HYPE_CACHE_SECONDS=600
 X_TOKEN_SEARCH_MAX_RESULTS=10
 X_TOKEN_SEARCH_MAX_QUERIES=1
 X_HYPE_MIN_LIQUIDITY_USD=500
-VIRAL_SHORTLIST_PER_SCAN=1
 ```
 
-# Broke Cat Bot V11.14 🐱
+# Broke Cat Bot V11.15 🐱
 
-V11.14 keeps the existing V11.13 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
+V11.15 keeps the existing V11.13 discovery engine and turns Broke Cat into a multi-lane meme-coin discovery and execution engine while preserving the hard bundle/dev/holder safety gates from V8.x.
 
 ## What changed
 
@@ -155,11 +146,8 @@ Existing X posting still uses:
 - `X_ACCESS_TOKEN_SECRET`
 
 For X search/stream intelligence add an **X Bearer Token**:
-- `X_BEARER_TOKEN`
-- `X_INTEL_ENABLED=true`
 
 Optional near-real-time Filtered Stream:
-- `X_STREAM_ENABLED=true`
 
 This can consume paid X API usage. Leave it `false` until you intentionally want the live stream running.
 
@@ -185,8 +173,6 @@ This does **not** translate or alter a contract address, and language/hype still
 
 New Railway options:
 ```env
-X_MULTILINGUAL_INTEL_ENABLED=true
-X_MULTILINGUAL_QUERY_GROUPS=4
 ```
 
 ### 4) Viral bonus
@@ -272,18 +258,12 @@ TP4_GAIN_PCT=60
 TP4_SELL_PCT=20
 MOON_BAG_PCT=25
 
-X_INTEL_ENABLED=true
-X_MULTILINGUAL_INTEL_ENABLED=true
-X_MULTILINGUAL_QUERY_GROUPS=4
-X_STREAM_ENABLED=false
-X_BEARER_TOKEN=
 X_OFFICIAL_WATCH_ACCOUNTS=
 ANALYTICS_EVERY_SCANS=10
 X_IDLE_POSTING_ENABLED=true
 X_IDLE_POST_HOURS=2
 ```
 
-`X_BEARER_TOKEN` is optional. Without it, live trading/scanning continues but the pre-launch and viral X intelligence layer remains off.
 
 ## Safety note
 Broke Cat is experimental trading software. Meme coins can lose most or all of their value extremely quickly, and a configured stop is not a guaranteed execution price. Keep the bot wallet isolated from long-term funds and increase capital only after reviewing actual fills, slippage, drawdowns and trade history.
@@ -293,7 +273,6 @@ Broke Cat is experimental trading software. Meme coins can lose most or all of t
 
 V9.5 adds independent discovery/confirmation feeds without allowing social hype to override the existing bundle/dev/holder/liquidity hard gates.
 
-- **GeckoTerminal:** keyless Solana new-pool + trending-pool discovery as an independent market confirmation feed.
 
 Cross-platform confirmation is deliberately capped (`CROSS_PLATFORM_BONUS_MAX`, default 8). It can lift a clean setup but **cannot bypass hard on-chain safety blocks**. A candidate log now shows `cross N (+B)` for number of independent confirmations and bonus points.
 
@@ -306,7 +285,6 @@ RUNNER_FEED_MAX_ADDRESSES=60
 
 
 
-GECKOTERMINAL_ENABLED=true
 
 ```
 
@@ -343,12 +321,10 @@ Rapid Watch now ranks and labels watched newborn tokens as IMPROVING, STALLED, o
 
 
 ## V10.0 — Wide Runner Radar
-V10.0 fixes the discovery blind spot where a token could become a major runner after its newborn window and never reach scoring. Discovery no longer truncates the address list before loading market data. It batches up to 30 token addresses per DexScreener request, ranks the full discovery universe by priority, runner status, volume, liquidity and momentum, then processes the strongest candidates. GeckoTerminal trending and new-pool coverage is expanded across multiple pages while remaining below its public request-rate ceiling at the default 60-second feed refresh. Strong runners (default: $50k-$10m MC, $10k+ liquidity, $3k+ 5m volume plus 5m/1h momentum, buyer pressure or volume acceleration) are prioritized for scoring even when older than the newborn window. Hard bundle/dev/holder/liquidity safety gates remain unchanged.
 
 
 ## v10.2 Platform Trend Radar
 - Platform trending is a discovery/priority signal, never an automatic trade signal.
-- GeckoTerminal trending pools remain active with no extra key when GECKOTERMINAL_ENABLED=true.
 - Fomo publicly documents trending/social discovery but no stable public developer feed is wired here; do not depend on reverse-engineered private endpoints.
 - Trend candidates still pass normal Runner Evidence and hard Helius/risk gates.
 

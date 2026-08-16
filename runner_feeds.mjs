@@ -1,21 +1,9 @@
 import {config} from './config.mjs';
 import {mobulaTrending} from './mobula_intel.mjs';
 
-const GT='https://api.geckoterminal.com/api/v2';
 const cache={at:0,addresses:new Map(),selectedAddresses:[],laneMix:{early:0,trending:0,total:0},statuses:{}};
 const num=v=>{const n=Number(v);return Number.isFinite(n)?n:0};
 const add=(map,address,source,meta={})=>{if(!address||typeof address!=='string'||address.length<25)return;const old=map.get(address)||{address,sources:new Set(),meta:{}};old.sources.add(source);old.meta={...old.meta,[source]:meta};map.set(address,old)};
-async function getJson(url,opts={}){const r=await fetch(url,opts);if(!r.ok)throw new Error(`${new URL(url).hostname} ${r.status}`);return r.json()}
-function includedTokenMap(j){const m=new Map();for(const x of j?.included||[])if(x?.type==='token'){const a=x?.attributes||{};if(a.address)m.set(x.id,{address:a.address,name:a.name,symbol:a.symbol})}return m}
-async function gecko(map){
-  if(!config.geckoTerminalEnabled)return{enabled:false,why:'disabled'};
-  const jobs=[];
-  for(let page=1;page<=Math.max(1,config.geckoTrendingPages);page++)jobs.push({kind:'gecko-trending',url:`${GT}/networks/solana/trending_pools?include=base_token&page=${page}`});
-  for(let page=1;page<=Math.max(1,config.geckoNewPages);page++)jobs.push({kind:'gecko-new',url:`${GT}/networks/new_pools?include=base_token&page=${page}`});
-  let n=0;
-  for(const job of jobs){const j=await getJson(job.url,{headers:{accept:'application/json'}});const toks=includedTokenMap(j);for(const pool of j?.data||[]){const rel=pool?.relationships?.base_token?.data?.id;const tok=toks.get(rel);const a=pool?.attributes||{};if(tok?.address){add(map,tok.address,job.kind,{pool:a.address,name:tok.name,symbol:tok.symbol,liquidityUsd:num(a.reserve_in_usd),marketCapUsd:num(a.market_cap_usd||a.fdv_usd),volume5m:num(a.volume_usd?.m5),volume1h:num(a.volume_usd?.h1),change5m:num(a.price_change_percentage?.m5),change1h:num(a.price_change_percentage?.h1)});n++}}}
-  return{enabled:true,count:n,pages:jobs.length};
-}
 async function mobula(map){
   const result=await mobulaTrending();
   if(!result.enabled)return result;
@@ -28,30 +16,24 @@ export function confirmationFor(candidate){
   return{sources:unique,count:unique.length,bonus,community:null,meta:row?.meta||{}};
 }
 export async function refreshRunnerFeeds(force=false){
-  if(!config.crossPlatformEnabled)return{addresses:[],statuses:{disabled:true}};
+  if(!config.crossPlatformEnabled)return{addresses:[],statuses:{disabled:true},laneMix:{early:0,trending:0,total:0}};
   const ttl=Math.max(15,config.runnerFeedPollSeconds)*1000;if(!force&&Date.now()-cache.at<ttl)return{addresses:[...(cache.selectedAddresses||[])],statuses:cache.statuses,laneMix:cache.laneMix};
   const map=new Map();const statuses={};
-  for(const [name,fn] of [['mobula-axiom',mobula],['geckoterminal',gecko]]){try{statuses[name]=await fn(map)}catch(e){statuses[name]={enabled:true,error:e?.message||String(e)}}}
+  try{statuses['mobula-axiom']=await mobula(map)}catch(e){statuses['mobula-axiom']={enabled:true,error:e?.message||String(e)}}
   cache.at=Date.now();cache.addresses=map;cache.statuses=statuses;
   const max=Math.max(20,config.runnerFeedMaxAddresses||120);const rows=[...map.values()];
-  const isEarly=r=>[...r.sources].some(x=>x==='gecko-new');
-  const isTrend=r=>[...r.sources].some(x=>x==='gecko-trending'||x==='mobula-axiom-trending');
+  const isTrend=r=>[...r.sources].some(x=>x==='mobula-axiom-trending');
   const chosen=[];const used=new Set();const take=(filter,limit)=>{for(const r of rows){if(chosen.length>=max||limit<=0)break;if(used.has(r.address)||!filter(r))continue;chosen.push(r.address);used.add(r.address);limit--}};
-  take(isEarly,Math.min(max,Math.max(0,config.runnerFeedEarlyReserve||40)));
-  take(isTrend,Math.min(max-chosen.length,Math.max(0,config.runnerFeedTrendReserve||50)));
-  take(()=>true,max-chosen.length);
-  const laneMix={early:chosen.filter(a=>isEarly(map.get(a))).length,trending:chosen.filter(a=>isTrend(map.get(a))).length,total:chosen.length};
+  take(isTrend,Math.min(max,Math.max(0,config.runnerFeedTrendReserve||50)));take(()=>true,max-chosen.length);
+  const laneMix={early:0,trending:chosen.filter(a=>isTrend(map.get(a))).length,total:chosen.length};
   cache.selectedAddresses=[...chosen];cache.laneMix=laneMix;return{addresses:chosen,statuses,laneMix};
 }
-export function discoverySourceFor(address){const row=cache.addresses.get(address);if(!row)return{isNewLaunch:false,isTrending:false,sources:[]};const sources=[...row.sources];return{isNewLaunch:sources.includes('gecko-new'),isTrending:sources.some(x=>x==='gecko-trending'||x==='mobula-axiom-trending'),sources};}
-export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='gecko-trending'||x==='mobula-axiom-trending');const platforms=[...new Set(sources.map(x=>x==='mobula-axiom-trending'?'axiom-style':'geckoterminal'))];return{isTrending:sources.length>0,sources,platforms};}
+export function discoverySourceFor(address){const row=cache.addresses.get(address);if(!row)return{isNewLaunch:false,isTrending:false,sources:[]};const sources=[...row.sources];return{isNewLaunch:false,isTrending:sources.includes('mobula-axiom-trending'),sources};}
+export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='mobula-axiom-trending');return{isTrending:sources.length>0,sources,platforms:sources.length?['axiom-style']:[]};}
 export function runnerFeedStatus(){return{lastRefresh:cache.at?new Date(cache.at).toISOString():null,addresses:cache.addresses.size,statuses:cache.statuses}}
-
 export function marketDataFor(address){
-  const row=cache.addresses.get(address);if(!row)return null;
-  const metas=Object.entries(row.meta||{}).map(([source,meta])=>({source,meta:meta||{}}));
+  const row=cache.addresses.get(address);if(!row)return null;const metas=Object.entries(row.meta||{}).map(([source,meta])=>({source,meta:meta||{}}));
   const liquid=metas.filter(x=>num(x.meta.liquidityUsd)>0).sort((a,b)=>num(b.meta.liquidityUsd)-num(a.meta.liquidityUsd))[0];
-  const first=(key)=>{for(const x of metas){const v=num(x.meta[key]);if(v>0)return v}return 0};
-  const text=(key)=>{for(const x of metas){const v=x.meta[key];if(v)return v}return null};
+  const first=key=>{for(const x of metas){const v=num(x.meta[key]);if(v>0)return v}return 0};const text=key=>{for(const x of metas){const v=x.meta[key];if(v)return v}return null};
   return{liquidityUsd:liquid?num(liquid.meta.liquidityUsd):0,liquiditySource:liquid?.source||null,marketCapUsd:first('marketCapUsd'),volume5m:first('volume5m'),volume1h:first('volume1h'),change5m:first('change5m'),change1h:first('change1h'),name:text('name'),symbol:text('symbol')};
 }

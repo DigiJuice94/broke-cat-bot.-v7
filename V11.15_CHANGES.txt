@@ -1,0 +1,17 @@
+Broke Cat Bot V11.15 - simplified feed build
+
+Removed completely:
+- GeckoTerminal feed and all Gecko API calls
+- Telegram alerts/integration
+- X intelligence/search/filtered-stream/pre-launch radar
+- X Bearer-token dependency
+
+Kept:
+- X trade/status posting via OAuth credentials (X_API_KEY / X_API_SECRET / X_ACCESS_TOKEN / X_ACCESS_TOKEN_SECRET)
+- DexScreener discovery/market data
+- Helius safety/on-chain analysis
+- Jupiter execution/quotes
+- Mobula/Axiom-style optional runner feed
+- runner radar, revisit queue, multi-position management, liquidity intelligence
+
+No secret changes are required. Old Gecko/Telegram/X-intel Railway variables can remain unused or be deleted later.
