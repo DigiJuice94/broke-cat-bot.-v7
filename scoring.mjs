@@ -127,7 +127,7 @@ export async function scoreCandidate(c,hype={bonus:0},cross={bonus:0,sources:[]}
   else if(runner.evidenceScore>=40){score+=4;reasons.push(`runner watch ${runner.evidenceScore}/100`)}
 
   const preRiskScore=score;
-  const deepSafety=preRiskScore>=config.birdeyeSafetyMinScore||Boolean(c.platformTrending)||Boolean(runner.isRunner);
+  const deepSafety=preRiskScore>=config.deepSafetyMinScore||Boolean(c.platformTrending)||Boolean(runner.isRunner);
   const risk=await analyzeRisk(c,{deepSafety});
   // If Axiom-style bundle % is available, normalize the displayed/scored bundle class
   // to the explicit user policy: <5 low, 5–13 medium, >13 high. Keep the provider

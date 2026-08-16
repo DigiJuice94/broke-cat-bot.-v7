@@ -1,13 +1,16 @@
-# v11.4 fixed-entry execution
+# Broke Cat Bot v11.5
+
+Lean feed build. Active market/data stack: DexScreener, Axiom-style/Mobula, GeckoTerminal, Helius, and Jupiter. Birdeye discovery/safety, CoinGecko Pump.fun trending, Bitquery Pump.fun discovery, and Telegram intelligence feeds have been removed to reduce moving parts. Telegram alert delivery remains available if TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID are configured.
+
 
 - Every approved normal 85+ entry executes a fixed `$5` buy (`APPROVED_ENTRY_USD=5`).
 - Micro-Cap Early Entry remains a fixed `$5` buy (`MICRO_CAP_ENTRY_USD=5`).
 - Dynamic wallet-percentage sizing no longer vetoes approved signals.
 - The bot still preserves `MIN_SOL_RESERVE=0.003` SOL. If a $5 trade cannot be funded after that reserve, the log states the exact available spendable balance.
 
-# Broke Cat Bot v11.4
+# Broke Cat Bot v11.5
 
-## v11.4 — Micro-Cap Early Entry
+## v11.5 — Micro-Cap Early Entry
 - Adds a separate **$5 fixed Micro-Cap Early Entry** path for clean, active tokens in the first 15 minutes.
 - Default micro-cap market-cap window: **$3,000–$20,000**.
 - Keeps the **$3,000 liquidity floor**, **bundle >13% hard NO TRADE**, and **HIGH dev risk hard NO TRADE**.
@@ -17,7 +20,7 @@
 - Normal confirmed entries remain **85+** and keep the existing sizing/profit system.
 - Holder concentration remains useful scoring data but is not an emergency panic-sell trigger; bundle/dev hard-risk changes still are.
 
-## v11.4 — Balanced Entry / Data-Rich, Rule-Light
+## v11.5 — Balanced Entry / Data-Rich, Rule-Light
 
 This build keeps Early Runner scoring, platform/trending discovery, Runner Radar, 5-minute revisits, and Axiom-style/Mobula + Birdeye + Helius safety data, but reduces vetoes.
 
@@ -41,7 +44,6 @@ Axiom Trade's Pulse UI exposes Top-10, Dev, Insider, Sniper, Bundle and Holder m
 
 # Broke Cat Bot v10.5
 
-V10.5 fixes two visibility/data-quality gaps. Platform-trending tokens from GeckoTerminal, Pump.fun/CoinGecko, and Birdeye are promoted into the normal scoring pipeline and now print a `PLATFORM EVALUATED` line with score, entry status, and safety resolution. Strong candidates (pre-risk score 68+, Runner Radar hits, or platform-trending tokens) use Birdeye's official Token Security, Creation Info, and First Buyers endpoints alongside Helius. Birdeye First Buyers wallet tags (`bundler`, `sniper`, `dev`, `insider`) are used as an independent launch-risk signal; Helius remains the on-chain fallback/verification path. Results are cached to control API usage. UNKNOWN is still fail-closed for live entries, but the bot now has a second official data path before declaring launch risk unverified.
 
 # Broke Cat Bot v10.1 — Evidence Runner Radar
 
@@ -53,7 +55,7 @@ V10.1 replaces the single-threshold Runner Radar with a multi-signal evidence sc
 
 If X viral intelligence returns a billing/credits/payment error, Broke Cat now sends one alert for that outage, marks viral status as `PAY`, and pauses further X intel requests for 30 minutes instead of repeatedly hammering the paid endpoint. Market and on-chain scanning continue independently. A successful X intel request clears the billing state so a future separate outage can alert once again.
 
-At startup the console also prints a `DATA FEEDS` line showing the current status of DexScreener, GeckoTerminal, Birdeye, Pump.fun/Bitquery, Telegram, Helius, and Jupiter.
+At startup the console prints a `DATA FEEDS` line for DexScreener, Axiom-style/Mobula, GeckoTerminal, Helius, and Jupiter.
 
 
 ## V9.8 — X cost guard + viral status fix
@@ -265,10 +267,7 @@ Broke Cat is experimental trading software. Meme coins can lose most or all of t
 
 V9.5 adds independent discovery/confirmation feeds without allowing social hype to override the existing bundle/dev/holder/liquidity hard gates.
 
-- **Birdeye:** fresh Solana listings, including meme-platform aware discovery when your Birdeye key supports it.
-- **Pump.fun / Bitquery:** optional recent Pump.fun creation feed using a Bitquery OAuth API token.
 - **GeckoTerminal:** keyless Solana new-pool + trending-pool discovery as an independent market confirmation feed.
-- **Telegram/community:** automatically detects Telegram links already attached to token metadata; optional Telegram Bot API channel-post intake is supported only for channels where your bot is actually a member. It does not scrape arbitrary private/public chats.
 
 Cross-platform confirmation is deliberately capped (`CROSS_PLATFORM_BONUS_MAX`, default 8). It can lift a clean setup but **cannot bypass hard on-chain safety blocks**. A candidate log now shows `cross N (+B)` for number of independent confirmations and bonus points.
 
@@ -280,16 +279,11 @@ RUNNER_FEED_POLL_SECONDS=60
 RUNNER_FEED_MAX_ADDRESSES=60
 
 BIRDEYE_ENABLED=true
-BIRDEYE_API_KEY=
 
 BITQUERY_PUMPFUN_ENABLED=true
-BITQUERY_API_TOKEN=
 
 GECKOTERMINAL_ENABLED=true
 
-TELEGRAM_INTEL_ENABLED=true
-TELEGRAM_INTEL_BOT_TOKEN=
-TELEGRAM_INTEL_KEYWORDS=launch,ca,contract,live,pump,solana
 ```
 
 If a key is missing, that feed reports itself disabled and the bot continues with the remaining feeds.
@@ -331,7 +325,6 @@ V10.0 fixes the discovery blind spot where a token could become a major runner a
 ## v10.2 Platform Trend Radar
 - Platform trending is a discovery/priority signal, never an automatic trade signal.
 - GeckoTerminal trending pools remain active with no extra key when GECKOTERMINAL_ENABLED=true.
-- Optional direct Pump.fun h1/h6 trending discovery uses CoinGecko Megafilter when COINGECKO_API_KEY is set.
 - Fomo publicly documents trending/social discovery but no stable public developer feed is wired here; do not depend on reverse-engineered private endpoints.
 - Trend candidates still pass normal Runner Evidence and hard Helius/risk gates.
 
@@ -343,3 +336,10 @@ Rapid Watch has been removed. Candidates that complete scoring at **68/100 or hi
 Tokens in the first 15 minutes now use a dedicated early-runner market profile instead of being forced to meet the same raw 5-minute-volume standard as established runners. The buy threshold remains 85 and all Axiom-style/Helius/Birdeye safety gates remain intact.
 
 Early Runner emphasizes: liquidity quality, liquidity velocity between observations, volume acceleration, buyer pressure, transaction participation quality, and 5m volume relative to liquidity. Raw 5m volume is deliberately lower weight with default points at $200/$500/$1,000/$2,500 rather than requiring mature-runner volume. After 15 minutes the bot automatically returns to the established v7-style core scoring profile. Social/viral remains optional bonus evidence and cannot be required for entry.
+
+
+## v11.6 Railway stability
+- Railway starts Node directly instead of through npm, so normal SIGTERM deploy shutdowns no longer appear as npm command failures.
+- /health is local-only and never waits on wallet/RPC/API calls.
+- Restart policy is ON_FAILURE.
+- SIGTERM/SIGINT are handled as clean shutdowns.
