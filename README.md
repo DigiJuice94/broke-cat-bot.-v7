@@ -1,10 +1,18 @@
-# Broke Cat Bot v11.9
+# Broke Cat Bot v11.11
 
-Current stable build based on v11.8 behavior, with synchronized version metadata and cleaner packaging for GitHub/Railway uploads.
+## v11.11 — Liquidity data reliability
+- Retries DexScreener batch data once when a new token has market/volume activity but liquidity temporarily returns as zero.
+- Distinguishes **LIQUIDITY PENDING** from genuine liquidity below the configured floor.
+- Liquidity-pending candidates are revisited after about 30 seconds regardless of preliminary score.
+- Priority/revisit addresses receive a direct token-pairs fallback before being rejected for liquidity.
+- The $3,000 liquidity safety floor is unchanged; this release fixes missing/late data rather than weakening the rule.
+
+
+Current stable build with synchronized version metadata, cleaner logs, and percentage-based sizing.
 
 ## Current behavior
 - Active market/data stack: **DexScreener, Axiom-style/Mobula, GeckoTerminal, Helius, and Jupiter**.
-- Birdeye discovery/safety, CoinGecko Pump.fun trending, Bitquery Pump.fun discovery, and Telegram intelligence feeds are removed to reduce moving parts. Telegram alert delivery remains available when configured.
+- Active discovery/safety stack is intentionally lean: DexScreener, Axiom-style/Mobula, GeckoTerminal, Helius, and Jupiter. Telegram alert delivery remains available when configured.
 - **Score-based percentage sizing** is enabled again. Approved entries size from the spendable wallet balance after the SOL reserve; there is no fixed $5 entry requirement.
 - `MIN_SOL_RESERVE=0.003` SOL remains protected.
 - Normal confirmed entry threshold remains **85+**.
@@ -14,9 +22,9 @@ Current stable build based on v11.8 behavior, with synchronized version metadata
 - Active positions print periodic holding/P&L updates so the bot does not appear idle.
 - Railway health checks are local/fast and SIGTERM is handled as a clean shutdown.
 
-## v11.9 maintenance
-- Synchronizes README, package version, health endpoint version, startup banner, and archive folder name to **v11.9**.
-- Packages the project inside a top-level `BrokeCatBot-v11.9/` folder for cleaner GitHub uploads.
+## v11.11 maintenance
+- Synchronizes README, package version, health endpoint version, startup banner, and archive folder name to **v11.11**.
+- Packages the project inside a top-level `BrokeCatBot-v11.11/` folder for cleaner uploads.
 - Preserves the v11.8 trading/scanning behavior; this release does **not** change scoring thresholds or add new feeds.
 
 ## v11.8 behavior carried forward
@@ -31,7 +39,7 @@ Current stable build based on v11.8 behavior, with synchronized version metadata
 
 
 ## V10.7 — Axiom-style safety + discovery
-Axiom Trade's Pulse UI exposes Top-10, Dev, Insider, Sniper, Bundle and Holder metrics but Axiom does not provide a supported public API. V10.7 adds Mobula Pulse as the supported Axiom-style programmatic layer. Mobula provides the same key holder-distribution fields (`top10HoldingsPercentage`, `devHoldingsPercentage`, `insidersHoldingsPercentage`, `bundlersHoldingsPercentage`, `snipersHoldingsPercentage`, holder counts) and an Axiom-style trending feed. For any platform-trending, runner, or otherwise deep-safety candidate, Broke Cat tries this source alongside Helius and Birdeye. Logs show numeric percentages when available instead of only UNKNOWN. Add `MOBULA_API_KEY` in Railway to enable it.
+Axiom Trade's Pulse UI exposes Top-10, Dev, Insider, Sniper, Bundle and Holder metrics but Axiom does not provide a supported public API. V10.7 adds Mobula Pulse as the supported Axiom-style programmatic layer. Mobula provides the same key holder-distribution fields (`top10HoldingsPercentage`, `devHoldingsPercentage`, `insidersHoldingsPercentage`, `bundlersHoldingsPercentage`, `snipersHoldingsPercentage`, holder counts) and an Axiom-style trending feed. For any platform-trending, runner, or otherwise deep-safety candidate, Broke Cat tries this source alongside Helius. Logs show numeric percentages when available instead of only UNKNOWN. Add `MOBULA_API_KEY` in Railway to enable it.
 
 # Broke Cat Bot v10.5
 
@@ -269,9 +277,7 @@ CROSS_PLATFORM_BONUS_MAX=8
 RUNNER_FEED_POLL_SECONDS=60
 RUNNER_FEED_MAX_ADDRESSES=60
 
-BIRDEYE_ENABLED=true
 
-BITQUERY_PUMPFUN_ENABLED=true
 
 GECKOTERMINAL_ENABLED=true
 
@@ -324,7 +330,7 @@ Rapid Watch has been removed. Candidates that complete scoring at **68/100 or hi
 
 
 ## v10.8 — Early Runner scoring profile
-Tokens in the first 15 minutes now use a dedicated early-runner market profile instead of being forced to meet the same raw 5-minute-volume standard as established runners. The buy threshold remains 85 and all Axiom-style/Helius/Birdeye safety gates remain intact.
+Tokens in the first 15 minutes now use a dedicated early-runner market profile instead of being forced to meet the same raw 5-minute-volume standard as established runners. The buy threshold remains 85 and all Axiom-style/Helius safety gates remain intact.
 
 Early Runner emphasizes: liquidity quality, liquidity velocity between observations, volume acceleration, buyer pressure, transaction participation quality, and 5m volume relative to liquidity. Raw 5m volume is deliberately lower weight with default points at $200/$500/$1,000/$2,500 rather than requiring mature-runner volume. After 15 minutes the bot automatically returns to the established v7-style core scoring profile. Social/viral remains optional bonus evidence and cannot be required for entry.
 

@@ -15,11 +15,13 @@ function bestPairsByToken(rows){
 }
 async function batchPairs(addresses){
   const clean=[...new Set(addresses)].filter(Boolean);const best=new Map();const size=Math.max(1,Math.min(30,config.discoveryBatchSize||30));
-  for(let i=0;i<clean.length;i+=size){
-    const slice=clean.slice(i,i+size);
-    const rows=await json(`${API}/tokens/v1/solana/${slice.join(',')}`).catch(()=>[]);
-    for(const [address,p] of bestPairsByToken(rows))best.set(address,p);
-  }
+  const load=async list=>{for(let i=0;i<list.length;i+=size){const slice=list.slice(i,i+size);const rows=await json(`${API}/tokens/v1/solana/${slice.join(',')}`).catch(()=>[]);for(const [address,p] of bestPairsByToken(rows)){const old=best.get(address);if(!old||p.liquidityUsd>old.liquidityUsd)best.set(address,p)}}};
+  await load(clean);
+  // Very new Solana pools can briefly return market/volume data before DexScreener's
+  // liquidity field is populated. Retry only those addresses once instead of treating
+  // a temporary missing value as confirmed $0 liquidity.
+  const pending=clean.filter(address=>{const p=best.get(address);return p&&p.liquidityUsd<=0&&(p.marketCap>0||p.volume5m>0||p.volume1h>0)});
+  if(pending.length){await new Promise(r=>setTimeout(r,500));await load(pending)}
   return best;
 }
 export function runnerMetrics(c){return c?.runnerRadar||observeRunnerEvidence(c)}
@@ -39,7 +41,11 @@ export async function discoverCandidates(priorityAddresses=[],runnerAddresses=[]
   // Never truncate before market data is loaded. Batch endpoint handles up to 30 addresses/request,
   // letting us cheaply rank the whole discovery universe first and only then cap processing.
   const all=[...addresses];const pairMap=await batchPairs(all);const enriched=[];
-  for(const address of all){const p=pairMap.get(address);if(!p)continue;const trend=platformTrendFor(address);const feed=discoverySourceFor(address);const meta={prioritySource:prioritySet.has(address),runnerSource:runnerSet.has(address),newLaunchSource:feed.isNewLaunch,platformTrending:trend.isTrending,platformTrendSources:trend.sources,platformTrendPlatforms:trend.platforms,discoverySources:feed.sources};const rm=observeRunnerEvidence(p);const withRunner={...p,...meta,runnerRadar:rm};enriched.push({...withRunner,discoveryRank:preRank(withRunner,meta)});}
+  for(const address of all){let p=pairMap.get(address);if(!p)continue;const trend=platformTrendFor(address);const feed=discoverySourceFor(address);const meta={prioritySource:prioritySet.has(address),runnerSource:runnerSet.has(address),newLaunchSource:feed.isNewLaunch,platformTrending:trend.isTrending,platformTrendSources:trend.sources,platformTrendPlatforms:trend.platforms,discoverySources:feed.sources};
+    // Revisit/watch addresses deserve one direct token-pairs fallback because the batch
+    // endpoint can lag behind a newly created pool's liquidity update.
+    if(p.liquidityUsd<=0&&prioritySet.has(address)&&(p.marketCap>0||p.volume5m>0||p.volume1h>0)){const direct=await pairForToken(address).catch(()=>null);if(direct&&direct.liquidityUsd>p.liquidityUsd)p=direct}
+    const liquidityPending=p.liquidityUsd<=0&&(p.marketCap>0||p.volume5m>0||p.volume1h>0);const rm=observeRunnerEvidence(p);const withRunner={...p,...meta,liquidityPending,runnerRadar:rm};enriched.push({...withRunner,discoveryRank:preRank(withRunner,meta)});}
   const ranked=enriched.sort((a,b)=>b.discoveryRank-a.discoveryRank||(b.volume5m||0)-(a.volume5m||0));
   const max=Math.max(40,config.discoveryMaxAddresses||150);
   const selected=[];const used=new Set();

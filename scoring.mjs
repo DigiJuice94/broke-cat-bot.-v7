@@ -163,6 +163,7 @@ export function entryAllowed(s){
   // Keep only the safety rules that protect against obvious non-executable / rug-prone
   // entries. The rich Axiom-style fields otherwise influence score instead of creating
   // a growing list of vetoes.
+  if(s.liquidityPending||((Number(s.liquidityUsd)||0)<=0&&((Number(s.marketCap)||0)>0||(Number(s.volume5m)||0)>0)))return{ok:false,why:'liquidity data pending'};
   if(s.liquidityUsd<config.minLiquidity)return{ok:false,why:'liquidity below floor'};
   const bundlePct=Number(s.risk.bundlePct);const hasBundlePct=Number.isFinite(bundlePct);
   if(!hasBundlePct&&s.risk.bundleRisk==='unknown')return{ok:false,why:'bundle/launch risk unverified'};
