@@ -6,7 +6,7 @@ const BIRDEYE='https://public-api.birdeye.so';
 const BITQUERY='https://streaming.bitquery.io/graphql';
 const COINGECKO='https://pro-api.coingecko.com/api/v3';
 const PUMP_PROGRAM='6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
-const cache={at:0,addresses:new Map(),statuses:{}};
+const cache={at:0,addresses:new Map(),selectedAddresses:[],laneMix:{early:0,trending:0,total:0},statuses:{}};
 const num=v=>Number(v??0)||0;
 const add=(map,address,source,meta={})=>{if(!address||typeof address!=='string'||address.length<25)return;const old=map.get(address)||{address,sources:new Set(),meta:{}};old.sources.add(source);old.meta={...old.meta,[source]:meta};map.set(address,old)};
 async function getJson(url,opts={}){const r=await fetch(url,opts);if(!r.ok)throw new Error(`${new URL(url).hostname} ${r.status}`);return r.json()}
@@ -99,7 +99,7 @@ export function confirmationFor(candidate){
 }
 export async function refreshRunnerFeeds(force=false){
   if(!config.crossPlatformEnabled)return{addresses:[],statuses:{disabled:true}};
-  const ttl=Math.max(15,config.runnerFeedPollSeconds)*1000;if(!force&&Date.now()-cache.at<ttl)return{addresses:[...cache.addresses.keys()],statuses:cache.statuses};
+  const ttl=Math.max(15,config.runnerFeedPollSeconds)*1000;if(!force&&Date.now()-cache.at<ttl)return{addresses:[...(cache.selectedAddresses||[])],statuses:cache.statuses,laneMix:cache.laneMix};
   const map=new Map();const statuses={};
   for(const [name,fn] of [['mobula-axiom',mobula],['birdeye',birdeye],['geckoterminal',gecko],['pumpfun-trending',pumpfunTrending],['pumpfun-bitquery',bitquery],['telegram',telegram]]){
     try{statuses[name]=await fn(map)}catch(e){statuses[name]={enabled:true,error:e?.message||String(e)}}
@@ -116,7 +116,17 @@ export async function refreshRunnerFeeds(force=false){
   take(isEarly,Math.min(max,Math.max(0,config.runnerFeedEarlyReserve||40)));
   take(isTrend,Math.min(max-chosen.length,Math.max(0,config.runnerFeedTrendReserve||50)));
   take(()=>true,max-chosen.length);
-  return{addresses:chosen,statuses,laneMix:{early:chosen.filter(a=>isEarly(map.get(a))).length,trending:chosen.filter(a=>isTrend(map.get(a))).length,total:chosen.length}};
+  const laneMix={early:chosen.filter(a=>isEarly(map.get(a))).length,trending:chosen.filter(a=>isTrend(map.get(a))).length,total:chosen.length};
+  cache.selectedAddresses=[...chosen];cache.laneMix=laneMix;
+  return{addresses:chosen,statuses,laneMix};
+}
+export function discoverySourceFor(address){
+  const row=cache.addresses.get(address);
+  if(!row)return{isNewLaunch:false,isTrending:false,sources:[]};
+  const sources=[...row.sources];
+  const isNewLaunch=sources.some(x=>x==='birdeye-new'||x==='gecko-new'||x==='pumpfun-bitquery');
+  const isTrending=sources.some(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending')||x.startsWith('birdeye-trending-')||x==='mobula-axiom-trending');
+  return{isNewLaunch,isTrending,sources};
 }
 export function platformTrendFor(address){const row=cache.addresses.get(address);if(!row)return{isTrending:false,sources:[],platforms:[]};const sources=[...row.sources].filter(x=>x==='gecko-trending'||x.startsWith('pumpfun-h1_trending')||x.startsWith('pumpfun-h6_trending')||x.startsWith('birdeye-trending-')||x==='mobula-axiom-trending');const platforms=[...new Set(sources.map(x=>x.startsWith('pumpfun-')?'pump.fun':x==='mobula-axiom-trending'?'axiom-style':x.startsWith('birdeye-trending-')?'birdeye':'geckoterminal'))];return{isTrending:sources.length>0,sources,platforms};}
 export function runnerFeedStatus(){return{lastRefresh:cache.at?new Date(cache.at).toISOString():null,addresses:cache.addresses.size,statuses:cache.statuses}}

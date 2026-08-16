@@ -1,3 +1,8 @@
+## v10.9 discovery-lane fix
+- Preserves Early/Trending feed reservations through cached refreshes.
+- Treats explicit new-listing feed tokens as Early discovery candidates even when pair age metadata is missing.
+- Prints EARLY EVALUATED logs and feed/discovery mix diagnostics.
+
 
 ## V10.7 — Axiom-style safety + discovery
 Axiom Trade's Pulse UI exposes Top-10, Dev, Insider, Sniper, Bundle and Holder metrics but Axiom does not provide a supported public API. V10.7 adds Mobula Pulse as the supported Axiom-style programmatic layer. Mobula provides the same key holder-distribution fields (`top10HoldingsPercentage`, `devHoldingsPercentage`, `insidersHoldingsPercentage`, `bundlersHoldingsPercentage`, `snipersHoldingsPercentage`, holder counts) and an Axiom-style trending feed. For any platform-trending, runner, or otherwise deep-safety candidate, Broke Cat tries this source alongside Helius and Birdeye. Logs show numeric percentages when available instead of only UNKNOWN. Add `MOBULA_API_KEY` in Railway to enable it.
